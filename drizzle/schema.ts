@@ -25,4 +25,18 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+export const restaurantApplications = mysqlTable("restaurant_applications", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  type: varchar("type", { length: 80 }).notNull(),
+  address: varchar("address", { length: 240 }).notNull(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  contact: varchar("contact", { length: 120 }).notNull(),
+  description: text("description"),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "suspended"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type RestaurantApplication = typeof restaurantApplications.$inferSelect;
+export type InsertRestaurantApplication = typeof restaurantApplications.$inferInsert;

@@ -1,0 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { ScreenContainer } from "@/components/screen-container";
+import { useColors } from "@/hooks/use-colors";
+
+export default function SupportScreen() {
+  const colors = useColors();
+  return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}><Text style={[styles.eyebrow, { color: colors.primary }]}>МЫ НА СВЯЗИ</Text><Text style={[styles.title, { color: colors.foreground }]}>Помощь</Text><Text style={[styles.subtitle, { color: colors.muted }]}>Ответы на частые вопросы и обращения по заказам будут собраны здесь.</Text>{["Как оформить заказ?", "Где посмотреть статус заказа?", "Как сообщить о проблеме?"] .map((item) => <Pressable key={item} style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}><Ionicons name="help-circle-outline" size={21} color={colors.primary} /><Text style={[styles.rowText, { color: colors.foreground }]}>{item}</Text><Ionicons name="chevron-forward" size={18} color={colors.muted} /></Pressable>)}<View style={[styles.notice, { backgroundColor: colors.primary + "12" }]}><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.primary} /><View style={{ flex: 1 }}><Text style={[styles.noticeTitle, { color: colors.foreground }]}>Нужна помощь?</Text><Text style={[styles.noticeBody, { color: colors.muted }]}>Обращения появятся после запуска поддержки.</Text></View></View></ScrollView></ScreenContainer>;
+}
+const styles = StyleSheet.create({ screen: { flex: 1 }, content: { padding: 20, gap: 12 }, eyebrow: { fontSize: 11, fontWeight: "800", letterSpacing: 1.5, marginTop: 8 }, title: { fontSize: 30, fontWeight: "800" }, subtitle: { fontSize: 15, lineHeight: 21, marginBottom: 8 }, row: { minHeight: 60, borderRadius: 18, borderWidth: 1, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12 }, rowText: { flex: 1, fontSize: 14, fontWeight: "700" }, notice: { marginTop: 8, borderRadius: 18, padding: 17, flexDirection: "row", gap: 12, alignItems: "flex-start" }, noticeTitle: { fontSize: 15, fontWeight: "800" }, noticeBody: { fontSize: 13, lineHeight: 18, marginTop: 4 } });
