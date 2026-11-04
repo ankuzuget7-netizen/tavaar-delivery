@@ -7,7 +7,7 @@
 
 ## Customer discovery and catalog
 - [ ] Provide the customer home screen with delivery address, search for restaurants/dishes, categories, favorites, order history, promotion/recommendation/banner areas and clear loading/error/empty/offline states.
-- [ ] Show only approved restaurants in the public catalog; provide restaurant details with logo/cover, description, address/contact, schedule, open/closed status, preparation time, delivery/pickup options, menu/categories/prices/photos/promotions and only genuine verified reviews/ratings.
+- [ ] Show only approved restaurants in the public catalog; provide restaurant details with logo/cover, description, address/contact, schedule, open/closed status, preparation time, delivery/pickup options, menu/categories/prices/photos/promotions and only genuine verified reviews/ratings. Phase 3 evidence: the customer catalog now reads active restaurants from the server; approval creates the public base record, while menu/details/reviews remain open.
 - [ ] Provide dish details with photo, name, description, price, ingredients, modifiers, portion size, quantity, item comment and add-to-cart behavior when an approved restaurant has an available menu.
 
 ## Cart, checkout and orders
@@ -19,7 +19,7 @@
 
 ## Identity, restaurant onboarding and operations
 - [ ] Implement phone registration/login and OTP with expiry, one-time use, protected storage, brute-force/resend limits, no OTP logs and no simulated success when an SMS provider is not configured.
-- [ ] Implement «Подключить заведение» with name/type/address/phone/INN where applicable/owner or representative/contact/schedule/logo/photos/description/delivery/pickup fields; application status is «На проверке» and it is not public before approval. Phase 1 evidence: the form currently captures name/type/address/phone/contact/description and persists `pending`; INN, owner details, schedule, media and delivery/pickup fields remain open.
+- [ ] Implement «Подключить заведение» with name/type/address/phone/INN where applicable/owner or representative/contact/schedule/logo/photos/description/delivery/pickup fields; application status is «На проверке» and it is not public before approval. Phase 3 evidence: approval atomically creates the active public restaurant and `owner` membership; authenticated submitters are linked automatically, while unauthenticated applications require an existing owner account ID in the admin cabinet. INN, owner details, schedule, media and delivery/pickup fields remain open.
 - [ ] Implement approved restaurant menu management: categories, dishes, descriptions, images, prices, availability, modifiers, combos, promotions, preparation time, hidden items and schedule.
 - [ ] Implement tenant-restricted restaurant order management, reasons for refusal, status actions, history/statistics and new-order notifications; a restaurant must not access another restaurant’s orders. Phase 2 evidence: protected owner cabinet shell is present, but owner/application membership and operational data remain open.
 

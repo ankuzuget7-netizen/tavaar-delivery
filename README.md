@@ -4,7 +4,7 @@ Native Expo/React Native foundation for a Russian-language food-delivery platfor
 
 ## Current status
 
-Phase 1 is implemented and verified: customer home shell, Russian empty-catalog experience, navigation tabs for home/orders/help/profile, native brand assets, partner application form, server-side Zod validation, persisted `restaurant_applications` records with `pending` status, a server-authorized admin application-review cabinet, and a protected restaurant-owner cabinet shell. The public catalog is intentionally empty because the user approved adding only verified restaurants through onboarding.
+Phase 1 is implemented and verified: customer home shell, Russian empty-catalog experience, navigation tabs for home/orders/help/profile, native brand assets, partner application form, server-side Zod validation, persisted `restaurant_applications` records with `pending` status, a server-authorized admin application-review cabinet, a protected restaurant-owner cabinet shell, and transactional approval that creates an active public restaurant plus an owner membership. The public catalog is intentionally empty until an actual application is approved.
 
 This is not a production-ready delivery platform yet. Cart, checkout, orders, phone OTP, restaurants and menus, operator/admin dashboards, payment/push/SMS providers, finance ledgers, support tickets, privacy/legal documents, production infrastructure and native release verification remain open in `TODO.md`. The project does not simulate successful payments, SMS, reviews, orders, ratings or financial metrics.
 
@@ -40,7 +40,7 @@ The API health endpoint is `GET /api/health`. The current API uses the managed d
 
 ## Data and security notes
 
-`restaurant_applications` is a durable table with server-validated inputs. Public submission does not grant operator access and approval does not yet create a public restaurant record; the restaurant/menu domain is intentionally a later phase. Admin list/status procedures and the admin cabinet use server-side admin authorization, but MFA, audit logging, reviewer metadata and owner/application membership remain open.
+`restaurant_applications` is a durable table with server-validated inputs. If an applicant is authenticated, the application stores that user ID and approval can use it automatically. For an unauthenticated application, the administrator must enter an existing user account ID; the server never invents an owner. Approval runs in one transaction: it validates the application and owner, creates an active restaurant, creates an `owner` membership, and marks the application approved. A unique application-to-restaurant constraint and idempotent membership insert prevent duplicate approval side effects. Admin list/status procedures and the admin cabinet use server-side admin authorization, but MFA, audit logging, reviewer metadata and owner invitation/onboarding remain open.
 
 Never put SMS/payment secrets in the mobile bundle or repository. Configure them through protected project secrets only after the provider, legal basis, contracts and environment separation are selected. Use provider-confirmed server events for payment success and never store card data.
 

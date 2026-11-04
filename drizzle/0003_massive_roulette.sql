@@ -1,0 +1,3 @@
+ALTER TABLE `restaurant_members` ADD CONSTRAINT `restaurant_members_restaurantId_restaurants_id_fk` FOREIGN KEY (`restaurantId`) REFERENCES `restaurants`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `restaurant_members` ADD CONSTRAINT `restaurant_members_userId_users_id_fk` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `restaurants` ADD CONSTRAINT `restaurants_applicationId_restaurant_applications_id_fk` FOREIGN KEY (`applicationId`) REFERENCES `restaurant_applications`(`id`) ON DELETE no action ON UPDATE no action;

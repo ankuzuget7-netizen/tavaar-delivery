@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
 const categories = [
   { icon: "restaurant-outline" as const, label: "Рестораны" },
@@ -16,6 +17,7 @@ const categories = [
 export default function HomeScreen() {
   const colors = useColors();
   const [query, setQuery] = useState("");
+  const restaurants = trpc.restaurants.listPublic.useQuery();
   const greeting = useMemo(() => (query.trim() ? `Ищем «${query.trim()}»` : "Что вкусного сегодня?"), [query]);
 
   return (
@@ -76,19 +78,25 @@ export default function HomeScreen() {
 
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Заведения рядом</Text>
-          <Text style={[styles.sectionMeta, { color: colors.muted }]}>0 заведений</Text>
+          <Text style={[styles.sectionMeta, { color: colors.muted }]}>{restaurants.data?.length ?? 0} заведений</Text>
         </View>
-        <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        {restaurants.data && restaurants.data.length > 0 ? restaurants.data.map((restaurant) => (
+          <View key={restaurant.id} style={[styles.restaurantCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={[styles.restaurantIcon, { backgroundColor: colors.primary + "16" }]}><Ionicons name="restaurant-outline" size={25} color={colors.primary} /></View>
+            <View style={{ flex: 1 }}><Text style={[styles.restaurantName, { color: colors.foreground }]}>{restaurant.name}</Text><Text style={[styles.restaurantMeta, { color: colors.muted }]}>{restaurant.type} · {restaurant.address}</Text><Text style={[styles.restaurantMeta, { color: colors.muted }]}>Проверенное заведение</Text></View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+          </View>
+        )) : <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.emptyIcon, { backgroundColor: colors.warning + "18" }]}>
             <Ionicons name="storefront-outline" size={28} color={colors.warning} />
           </View>
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Каталог пока пуст</Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>Здесь появятся рестораны после проверки и одобрения заявки.</Text>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>{restaurants.isError ? "Каталог временно недоступен" : "Каталог пока пуст"}</Text>
+          <Text style={[styles.emptyText, { color: colors.muted }]}>{restaurants.isError ? "Проверьте соединение и попробуйте снова." : "Здесь появятся рестораны после проверки и одобрения заявки."}</Text>
           <Pressable onPress={() => router.push("/partner/apply")} style={[styles.outlineButton, { borderColor: colors.primary }]}>
             <Text style={[styles.outlineButtonText, { color: colors.primary }]}>Подключить заведение</Text>
             <Ionicons name="arrow-forward" size={17} color={colors.primary} />
           </Pressable>
-        </View>
+        </View>}
 
         <View style={styles.footerNote}>
           <Ionicons name="shield-checkmark-outline" size={16} color={colors.success} />
@@ -128,6 +136,10 @@ const styles = StyleSheet.create({
   sectionMeta: { fontSize: 12, fontWeight: "600" },
   emptyCard: { borderWidth: 1, borderRadius: 24, padding: 24, alignItems: "center" },
   emptyIcon: { width: 62, height: 62, borderRadius: 22, alignItems: "center", justifyContent: "center", marginBottom: 13 },
+  restaurantCard: { borderWidth: 1, borderRadius: 20, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 },
+  restaurantIcon: { width: 52, height: 52, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  restaurantName: { fontSize: 16, fontWeight: "800" },
+  restaurantMeta: { fontSize: 12, lineHeight: 17, marginTop: 3 },
   emptyTitle: { fontSize: 18, fontWeight: "800" },
   emptyText: { textAlign: "center", fontSize: 14, lineHeight: 20, marginTop: 8, maxWidth: 290 },
   outlineButton: { marginTop: 18, borderWidth: 1.5, borderRadius: 14, minHeight: 44, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", gap: 8 },

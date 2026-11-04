@@ -1,0 +1,2 @@
+ALTER TABLE `restaurant_applications` ADD `submittedByUserId` int;--> statement-breakpoint
+ALTER TABLE `restaurant_applications` ADD CONSTRAINT `restaurant_applications_submittedByUserId_users_id_fk` FOREIGN KEY (`submittedByUserId`) REFERENCES `users`(`id`) ON DELETE no action ON UPDATE no action;
