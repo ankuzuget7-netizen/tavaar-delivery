@@ -1,9 +1,8 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { and, asc, desc, eq, gt, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import { deliveryAddresses, emailVerificationTokens, favoriteMenuItems, favoriteRestaurants, menuItems, passwordResetTokens, restaurants, users } from "../drizzle/schema";
 import { getDb } from "./db";
-
-const EMAIL_PROVIDER_CONFIGURED = false;
+import { emailProviderStatus, sendPasswordResetEmail, sendVerificationEmail } from "./_core/mailer";
 const VERIFICATION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 30 * 60 * 1000;
 const MAX_LOGIN_FAILURES = 5;
@@ -11,7 +10,6 @@ const LOCK_MS = 15 * 60 * 1000;
 
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validatePassword = (value: string) => value.length >= 10 && /[A-ZА-Я]/.test(value) && /[a-zа-я]/.test(value) && /\d/.test(value);
-export const emailProviderStatus = () => ({ configured: EMAIL_PROVIDER_CONFIGURED, message: "Подтверждение email и восстановление пароля пока недоступны: почтовый провайдер не настроен." });
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 const hashPassword = (password: string) => { const salt = randomBytes(16).toString("hex"); const derived = scryptSync(password, salt, 64).toString("hex"); return `scrypt$${salt}$${derived}`; };
 const verifyPassword = (password: string, encoded: string) => { const [, salt, expected] = encoded.split("$"); if (!salt || !expected) return false; const actual = scryptSync(password, salt, 64); const expectedBuffer = Buffer.from(expected, "hex"); return expectedBuffer.length === actual.length && timingSafeEqual(actual, expectedBuffer); };
@@ -30,19 +28,32 @@ export async function registerEmailAccount(input: { name: string; email: string;
   const userId = Number(inserted[0].insertId);
   const token = rawToken();
   await db.insert(emailVerificationTokens).values({ userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS) });
-  return { userId, email, emailDeliveryAvailable: EMAIL_PROVIDER_CONFIGURED, providerMessage: emailProviderStatus().message };
+  try {
+    await sendVerificationEmail(email, token);
+  } catch {
+    await db.delete(emailVerificationTokens).where(eq(emailVerificationTokens.userId, userId));
+    await db.delete(users).where(eq(users.id, userId));
+    throw new Error("EMAIL_DELIVERY_FAILED");
+  }
+  return { userId, email, emailDeliveryAvailable: true, providerMessage: emailProviderStatus().message };
 }
 
 export async function resendEmailVerification(emailInput: string) {
   const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const email = normalizeEmail(emailInput);
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  if (!user || user.emailVerifiedAt) return { accepted: true, emailDeliveryAvailable: EMAIL_PROVIDER_CONFIGURED, providerMessage: emailProviderStatus().message };
+  if (!user || user.emailVerifiedAt) return { accepted: true, emailDeliveryAvailable: true, providerMessage: "Если аккаунт существует и не подтверждён, письмо будет отправлено." };
   const [recent] = await db.select({ id: emailVerificationTokens.id }).from(emailVerificationTokens).where(and(eq(emailVerificationTokens.userId, user.id), gt(emailVerificationTokens.createdAt, new Date(Date.now() - 60_000)))).limit(1);
   if (recent) throw new Error("RESEND_TOO_SOON");
   const token = rawToken();
   await db.insert(emailVerificationTokens).values({ userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS) });
-  return { accepted: true, emailDeliveryAvailable: EMAIL_PROVIDER_CONFIGURED, providerMessage: emailProviderStatus().message };
+  try {
+    await sendVerificationEmail(email, token);
+  } catch {
+    await db.update(emailVerificationTokens).set({ usedAt: new Date() }).where(and(eq(emailVerificationTokens.userId, user.id), eq(emailVerificationTokens.tokenHash, hashToken(token))));
+    throw new Error("EMAIL_DELIVERY_FAILED");
+  }
+  return { accepted: true, emailDeliveryAvailable: true, providerMessage: emailProviderStatus().message };
 }
 
 export async function verifyEmailAddress(token: string) {
@@ -75,9 +86,18 @@ export async function requestPasswordReset(emailInput: string) {
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (user?.passwordHash) {
     const [recent] = await db.select({ id: passwordResetTokens.id }).from(passwordResetTokens).where(and(eq(passwordResetTokens.userId, user.id), gt(passwordResetTokens.createdAt, new Date(Date.now() - 60_000)))).limit(1);
-    if (!recent) { const token = rawToken(); await db.insert(passwordResetTokens).values({ userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) }); }
+    if (!recent) {
+      const token = rawToken();
+      await db.insert(passwordResetTokens).values({ userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) });
+      try {
+        await sendPasswordResetEmail(email, token);
+      } catch {
+        await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(and(eq(passwordResetTokens.userId, user.id), eq(passwordResetTokens.tokenHash, hashToken(token))));
+        throw new Error("EMAIL_DELIVERY_FAILED");
+      }
+    }
   }
-  return { accepted: true, emailDeliveryAvailable: EMAIL_PROVIDER_CONFIGURED, providerMessage: emailProviderStatus().message };
+  return { accepted: true, emailDeliveryAvailable: true, providerMessage: "Если аккаунт существует, письмо с инструкциями отправлено." };
 }
 
 export async function resetPassword(token: string, password: string) {
@@ -90,7 +110,6 @@ export async function resetPassword(token: string, password: string) {
 }
 
 function sqlIncrement(column: typeof users.authVersion) { return sql`${column} + 1`; }
-import { sql } from "drizzle-orm";
 
 export async function getAccountProfile(userId: number) { const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE"); const [user] = await db.select({ id: users.id, name: users.name, email: users.email, emailVerifiedAt: users.emailVerifiedAt, phone: users.phone, loginMethod: users.loginMethod }).from(users).where(eq(users.id, userId)).limit(1); if (!user) throw new Error("USER_NOT_FOUND"); return user; }
 export async function updateAccountProfile(userId: number, input: { name: string; phone?: string }) { const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE"); await db.update(users).set({ name: input.name.trim(), phone: input.phone?.trim() || null }).where(eq(users.id, userId)); return getAccountProfile(userId); }
