@@ -18,7 +18,7 @@
 - foreground GPS и scoped WebSocket-события;
 - durable notifications и Expo push boundary.
 
-Это ещё не завершённая коммерческая платформа. Комиссия 8%, финансы, OTP, платежи, полноценная корзина, расширенная админка, support, legal/compliance и native release evidence отсутствуют либо не подтверждены.
+Это ещё не завершённая коммерческая платформа. Комиссия 8%, финансы, email/password authentication, платежи, полноценная корзина, расширенная админка, support, legal/compliance и native release evidence отсутствуют либо не подтверждены. SMS-аутентификация явно исключена из текущего scope.
 
 ## Что реально проверено
 
@@ -28,15 +28,13 @@
 
 - `pnpm check` — TypeScript без ошибок;
 - `pnpm lint` — без lint-ошибок; остаются предупреждения pnpm/eslint о конфигурации модулей;
-- `pnpm test` — на исходном baseline: 25 тестов прошли, 1 пропущен (`auth.logout` требует OAuth-сессии);
+- `pnpm test` — 27 тестов прошли, 1 пропущен (`auth.logout` требует OAuth-сессии);
 - security regression suite — 2 теста прошли;
 - `pnpm build` — backend bundle собран в `dist/index.js`;
 - `pnpm db:push` — миграция idempotency key создана и применена;
 - `GET /api/health` — `200 OK`;
 - неавторизованный `/api/ws` — отказ `1008 Unauthorized`;
 - push helper с пустым списком получателей — корректно не отправляет сетевой запрос.
-
-Итого после добавления security regression tests ожидается полный счёт: **27 пройденных, 1 пропущенный** при полном `pnpm test`.
 
 ### Проверенные экраны и route-файлы
 
@@ -114,16 +112,17 @@ Production startup теперь завершается ошибкой при о�
 
 ### Критичные продуктовые пробелы
 
-1. Нет phone OTP/SMS flow: expiry, one-time use, brute-force limits, resend limits и provider boundary.
-2. Нет 8% commission model, rate snapshot, accrual/settlement/refund ledger и financial reports.
-3. Нет online payments, YooKassa/provider adapter, webhooks, reconciliation и refund flow.
-4. Нет полноценной persistent cart, cross-restaurant replacement dialog с требуемым точным текстом, modifiers, promos, delivery pricing и полной checkout form.
-5. Нет persisted addresses, favorites, reviews/ratings, account deletion/anonymization и consent model.
-6. Нет полноценной support ticket/conversation system.
-7. Admin cabinet покрывает только заявки; users, staff, all orders, complaints, banners, promos, finance, CSV и audit events отсутствуют.
-8. Нет MFA/2FA, session revocation table, rate limiting и append-only admin audit log.
-9. Нет background GPS, geofencing, ETA или embedded map.
-10. Нет подтверждённого Android APK/AAB, подписи, physical-device run, Play/RuStore metadata или offline/native regression pass.
+1. **Email/password authentication:** нет application-owned регистрации по имени/email/password, email verification links, email/password login, password reset links, password-attempt throttling и account email/password settings.
+2. **Email delivery:** нет подключённого transactional email provider. Нельзя заявлять отправку verification/reset писем.
+3. Нет 8% commission model, rate snapshot, accrual/settlement/refund ledger и financial reports.
+4. Нет online payments, YooKassa/provider adapter, webhooks, reconciliation и refund flow.
+5. Нет полноценной persistent cart, cross-restaurant replacement dialog с требуемым точным текстом, modifiers, promos, delivery pricing и полной checkout form.
+6. Нет persisted addresses, favorites, reviews/ratings, account deletion/anonymization и consent model.
+7. Нет полноценной support ticket/conversation system.
+8. Admin cabinet покрывает только заявки; users, staff, all orders, complaints, banners, promos, finance, CSV и audit events отсутствуют.
+9. Нет MFA/2FA, session revocation table, rate limiting и append-only admin audit log.
+10. Нет background GPS, geofencing, ETA или embedded map.
+11. Нет подтверждённого Android APK/AAB, подписи, physical-device run, Play/RuStore metadata или offline/native regression pass.
 
 ### Тестовое заведение и тестовый заказ
 
@@ -158,23 +157,30 @@ Production startup теперь завершается ошибкой при о�
 Для настоящего сквозного теста нужны одновременно:
 
 - изолированная база или официальная test environment;
-- test OAuth identities для customer, owner, admin и driver;
+- test identities для customer, owner, admin и driver;
 - созданное approved test restaurant;
 - native Android emulator/device для location и push;
 - Expo/EAS credentials и зарегистрированные push tokens;
-- платёжный sandbox, если проверять payment flow.
+- платёжный sandbox, если проверять payment flow;
+- transactional email sandbox, если проверять verification/reset.
 
 Их отсутствие нельзя заменять фиктивными успешными ответами или тестовыми production-записями.
 
 ## Рекомендованный следующий этап
 
 1. Добавить test environment и seed/fixture reset tooling.
-2. Реализовать commission/finance ledger до создания тестового заказа на 1000 ₽.
-3. Реализовать OTP/auth fixture и session revocation.
-4. Добавить persistent cart и полную checkout model.
+2. Реализовать email/password identity model, verification/reset tokens и безопасные email-provider unavailable states.
+3. Реализовать commission/finance ledger до создания тестового заказа на 1000 ₽.
+4. Реализовать persistent cart и полную checkout model.
 5. Добавить автоматические API/integration tests для tenant isolation, idempotency, order transitions, commission и authorization.
 6. После этого пройти изолированный E2E сценарий с реальными fixture records.
 7. Выполнить native Android build и physical-device checks для push/location.
+
+## Addendum: обновлённое требование авторизации
+
+SMS-регистрация, SMS OTP и SMS-восстановление пароля полностью исключены из scope. Целевой flow: регистрация по имени, email и паролю; подтверждение email через expiring single-use link; вход по email/password с защитой от перебора; восстановление пароля через expiring single-use email link; управление email и паролем в настройках с re-authentication и session revocation.
+
+Телефон не обязателен при регистрации. Он может собираться только как необязательный контакт при оформлении заказа для связи с курьером или рестораном. Email-доставка никогда не имитируется: при отсутствии или недоступности почтового провайдера UI показывает честное состояние «подтверждение/восстановление пока недоступно», а сервер не сообщает об успешной отправке.
 
 ## Файлы аудита
 

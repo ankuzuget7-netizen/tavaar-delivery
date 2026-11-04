@@ -16,9 +16,9 @@ No Redis is needed initially. Orders, idempotency, authorization and finance wil
 
 Implement real, persisted application behavior for the requested customer flows, restaurant onboarding, authorized merchant workflows, platform administration, support and financial records. Browse without login; require validated application authentication for private records and mutations. The entire product UI is Russian, currency is RUB and local date/time formatting uses `Asia/Krasnoyarsk` (UTC+7 for Tuva).
 
-Do not manufacture restaurant claims, customer reviews, star ratings, completed orders, revenues, successful SMS deliveries or successful payments. An illustrative catalog requires explicit approval, stays visibly labeled as test data, and cannot accept real orders. Without that approval the catalog starts empty and real restaurants enter through the application/approval workflow.
+Do not manufacture restaurant claims, customer reviews, star ratings, completed orders, revenues, successful email deliveries or successful payments. An illustrative catalog requires explicit approval, stays visibly labeled as test data, and cannot accept real orders. Without that approval the catalog starts empty and real restaurants enter through the application/approval workflow.
 
-The phone OTP provider is not specified or connected. Its interface must return an honest unavailable state until configured. No public fixed code, preview-user impersonation or client-side role switch. A test SMS provider may only be added after explicit approval, with separate environment credentials and no production bypass. Real onboarding and checkout remain blocked if no supported authentication provider is configured.
+Email/password authentication is the required application-owned identity flow. Email verification and password-reset links must return an honest unavailable state until a mail provider is configured; never simulate a sent email, expose a fixed code or log reset tokens. No phone number is required for registration. Phone is optional order contact data only. No SMS registration, SMS OTP or SMS password recovery is permitted.
 
 Online payment is unavailable until a selected Russian provider, merchant credentials and contractual setup are supplied. Cash/payment on receipt may be available when explicitly allowed by each approved restaurant. Cards are never collected by this app. Provider-dependent refunds cannot be represented as completed until verified by the provider.
 
@@ -29,7 +29,7 @@ Push delivery, signed APK/AAB, physical-device verification, public domains and 
 - `app/(tabs)/`: customer home/catalog, favorites, orders and profile navigation.
 - `app/restaurant/[id].tsx`, `app/dish/[id].tsx`: restaurant and dish detail screens.
 - `app/cart.tsx`, `app/checkout.tsx`, `app/order/[id].tsx`: cart, server quote, checkout and order timeline.
-- `app/auth/`, `app/support/`, `app/partner/`, `app/admin/`: phone login, support, restaurant onboarding/authorized cabinet, administrator views.
+- `app/auth/`, `app/support/`, `app/partner/`, `app/admin/`: email/password registration, verification, login and recovery; support; restaurant onboarding/authorized cabinet; administrator views.
 - `components/food/`, `components/ui/`: reusable cards, money labels, quantities, confirmation sheets, forms and feedback states.
 - `hooks/`, `lib/`: query hooks, theme, durable local cart preferences, client validation, native secure token storage and API adapters. Client state never controls financial truth or permissions.
 - `server/domain/`: money arithmetic, quotes, cart rules, order state machine and commission policy.
@@ -47,7 +47,7 @@ Use integer kopecks for all stored amounts. Snapshot prices, commission rate and
 
 | Module | Tables and important ownership/integrity rules |
 |---|---|
-| Identity | Existing `users` plus customer profile, consent versions, sessions, phone challenges and restaurant memberships. Never grant roles from a client parameter. |
+| Identity | Existing `users` plus customer profile, consent versions, password credentials, email-verification tokens, password-reset tokens, sessions, optional phone contact and restaurant memberships. Never grant roles from a client parameter. |
 | Catalog | Restaurant applications, restaurants, schedules, service areas, menu categories, dishes, modifier groups/options, promotions and media references. Unapproved restaurants are excluded by server queries. |
 | Customer | Addresses, favorites and genuine verified-order reviews. Private records are scoped to the session user. |
 | Orders | Orders, immutable order items/modifiers, status events and idempotency records. One restaurant per order; current server prices and availability required. |
@@ -64,7 +64,7 @@ Customer: only their own profile, addresses, favorites, orders, reviews and supp
 
 Administrative MFA and secure initial administrator provisioning must be implemented and configured before operational admin access. A hidden route/button is not a security boundary. A separate production admin hostname requires domain provisioning; Expo Web route separation alone is not that hostname.
 
-Validate requests with Zod, bound payload/text/upload sizes, parameterized ORM queries, per-object tenant authorization, token/session expiry and revocation, secure cookies where applicable, OTP abuse limits and CSRF protections for cookie-authenticated writes. No app-owned secret may shadow platform credentials. No application secrets or OTP values in bundles/logs. Fail closed on missing credentials.
+Validate requests with Zod, bound payload/text/upload sizes, parameterized ORM queries, per-object tenant authorization, token/session expiry and revocation, secure cookies where applicable, password-attempt/email-token abuse limits and CSRF protections for cookie-authenticated writes. No app-owned secret may shadow platform credentials. No application secrets, password hashes or email tokens in bundles/logs. Fail closed on missing credentials.
 
 Upload controls include extension/MIME/content checks, allowed raster formats, decoded image size limits and image processing before storage. These controls must exist before uploads are enabled.
 
@@ -88,7 +88,7 @@ Admin workflows: restaurant application approval/rejection/suspension/blocking, 
 
 ## 7. Integrations
 
-Phone OTP: select a Russian SMS provider, then implement its actual API with protected credentials. Challenge expiry, hashed/peppered storage, one-time use, attempt limits, resend cooldown and per-phone/IP quotas belong to server/database. No successful response unless the provider accepted the send.
+Email authentication: select an approved transactional email provider, then implement its actual API with protected credentials. Verification and reset tokens are generated with cryptographically secure randomness, stored only as hashes, expire quickly, are single-use and are never logged. Registration, login, verification resend, reset request and reset completion require IP/account rate limits and generic responses that do not reveal whether an email exists. If the provider is unavailable or unconfigured, show a clear unavailable state and do not claim that an email was sent.
 
 Payments: select ЮKassa or another explicitly approved Russian provider. Read its current official documentation before implementing the adapter. Use provider idempotency, server-to-server status verification, authenticated/validated notifications according to that provider's contract, unique event receipts and reconciliation. Never assume every provider supports a cryptographic webhook signature. Split payments require a separate approved marketplace arrangement, not subtraction on the client.
 
@@ -134,7 +134,7 @@ Food images require supplied restaurant photos for real listings. Approved illus
 4. Implement restaurant onboarding and tenant-restricted operations, administrator provisioning/MFA/access, support, append-only financial ledger/reporting and in-app notifications. Keep unavailable external actions disabled and explained.
 5. Run actual compiler/unit/API/integration checks, fix confirmed defects and obtain one read-only implementation review. Report executed checks separately from unverified native/integration scenarios. Do not advance an affected operational feature with unresolved critical defects.
 6. Save an accepted checkpoint and hand off source/configuration and documentation. Keep publication off until separately authorized and verified. Native APK/AAB builds are performed through the Dashboard, not inside the sandbox. A build is not a signed release until its actual result is available.
-7. Complete Russian production/test hosting, backups and demonstrated restore, monitoring, domains/TLS, SMS/payment/push providers, legal review, real-device closed testing, signing and then current RuStore requirements review before submission. These are launch gates, not assumed completed tasks.
+7. Complete Russian production/test hosting, backups and demonstrated restore, monitoring, domains/TLS, email/payment/push providers, legal review, real-device closed testing, signing and then current RuStore requirements review before submission. These are launch gates, not assumed completed tasks.
 
 ## 10. Build and operational workflow
 
@@ -152,7 +152,7 @@ Backups, restore, incident handling and update instructions must distinguish ava
 
 - Approve React Native/Expo + managed MySQL instead of the preferred Flutter/PostgreSQL stack.
 - Choose an empty real catalog or explicitly approved, isolated and visibly labeled illustrative catalog. Illustrative businesses are not represented as real partners and cannot accept real orders.
-- Select and connect a phone SMS provider; no phone OTP success will be simulated. A different real authentication method would need approval.
+- Select and connect an approved transactional email provider for verification and password recovery; no email delivery success will be simulated. SMS authentication is explicitly excluded. Supply the password policy, session lifetime and account-recovery policy for review.
 - Supply verified restaurant/menu/address/delivery data and operator membership information.
 - Select payment provider and merchant arrangement. Providers, hosting, domains and store accounts may have fees; no paid provider is purchased without authorization.
 - Resolve Russian production data hosting and legal policies with qualified counsel.
