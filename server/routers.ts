@@ -99,7 +99,7 @@ export const appRouter = router({
         }
       }),
     setStatus: adminProcedure
-      .input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected", "suspended"]) }))
+      .input(z.object({ id: z.number().int().positive(), status: z.enum(["rejected", "suspended", "pending"]) }))
       .mutation(async ({ input }) => {
         try {
           return await updateRestaurantApplicationStatus(input.id, input.status);
@@ -134,13 +134,14 @@ export const appRouter = router({
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ для отслеживания не найден." }); }
     }),
     create: protectedProcedure
-      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), address: z.string().trim().min(5).max(400), customerComment: z.string().trim().max(1000).optional() }))
+      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), customerComment: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createCustomerOrder(ctx.user.id, input);
         } catch (error) {
           if (error instanceof Error && error.message === "RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Заведение больше недоступно." });
           if (error instanceof Error && (error.message === "MENU_ITEMS_UNAVAILABLE" || error.message === "INVALID_ORDER_ITEMS")) throw new TRPCError({ code: "BAD_REQUEST", message: "Некоторые блюда недоступны. Обновите меню и попробуйте снова." });
+          if (error instanceof Error && error.message === "IDEMPOTENCY_KEY_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: "Ключ повторной отправки уже связан с другим пользователем." });
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось оформить заказ." });
         }
       }),

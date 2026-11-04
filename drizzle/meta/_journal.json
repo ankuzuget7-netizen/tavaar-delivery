@@ -64,6 +64,13 @@
       "when": 1793783436973,
       "tag": "0008_parched_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1793784079968,
+      "tag": "0009_small_rattler",
+      "breakpoints": true
     }
   ]
 }

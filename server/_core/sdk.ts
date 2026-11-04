@@ -188,6 +188,10 @@ class SDKServer {
         console.warn("[Auth] Session payload missing required fields");
         return null;
       }
+      if (ENV.appId && appId !== ENV.appId) {
+        console.warn("[Auth] Session app binding mismatch");
+        return null;
+      }
 
       return {
         openId,

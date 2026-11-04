@@ -124,7 +124,7 @@ export async function listRestaurantApplications() {
 
 export async function updateRestaurantApplicationStatus(
   id: number,
-  status: "approved" | "rejected" | "suspended",
+  status: "rejected" | "suspended" | "pending",
 ) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
@@ -288,12 +288,18 @@ export async function createCustomerOrder(userId: number, input: {
   restaurantId: number;
   items: { menuItemId: number; quantity: number }[];
   fulfillment: "delivery" | "pickup";
+  idempotencyKey: string;
   address: string;
   customerComment?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const result = await db.transaction(async (tx) => {
+    const [existing] = await tx.select({ id: orders.id, customerId: orders.customerId, totalKopecks: orders.totalKopecks, status: orders.status }).from(orders).where(eq(orders.idempotencyKey, input.idempotencyKey)).limit(1);
+    if (existing) {
+      if (existing.customerId !== userId) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
+      return { orderId: existing.id, totalKopecks: existing.totalKopecks, status: existing.status, ownerUserIds: [] as number[], ownerTokens: [] as string[], replayed: true };
+    }
     const [restaurant] = await tx.select().from(restaurants).where(and(eq(restaurants.id, input.restaurantId), eq(restaurants.status, "active"))).limit(1);
     if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
     const itemIds = [...new Set(input.items.map((item) => item.menuItemId))];
@@ -306,18 +312,19 @@ export async function createCustomerOrder(userId: number, input: {
       return { menuItemId: item.id, nameSnapshot: item.name, priceKopecks: item.priceKopecks, quantity: line.quantity, lineTotalKopecks: item.priceKopecks * line.quantity };
     });
     const totalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
-    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, address: input.address.trim(), customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
+    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, idempotencyKey: input.idempotencyKey, address: input.address.trim(), customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
     const orderId = Number(orderResult[0].insertId);
     await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));
     await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });
     const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, input.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
     if (owners.length > 0) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: input.restaurantId, orderId, type: "new_order" as const, title: "Новый заказ", body: `Заказ #${orderId} на ${(totalKopecks / 100).toFixed(2)} ₽ ожидает подтверждения.` })));
     const ownerTokens = owners.length ? await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(inArray(pushTokens.userId, owners.map((owner) => owner.userId)), eq(pushTokens.active, 1))) : [];
-    return { orderId, totalKopecks, status: "placed" as const, ownerUserIds: owners.map((owner) => owner.userId), ownerTokens: ownerTokens.map((item) => item.token) };
+    return { orderId, totalKopecks, status: "placed" as const, ownerUserIds: owners.map((owner) => owner.userId), ownerTokens: ownerTokens.map((item) => item.token), replayed: false };
   });
+  if (result.replayed) return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status, replayed: true };
   for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.created", orderId: result.orderId, status: result.status });
   void sendExpoPushNotifications(result.ownerTokens, { title: "Новый заказ", body: `Заказ #${result.orderId} ожидает подтверждения.`, data: { orderId: result.orderId, type: "new_order" } });
-  return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status };
+  return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status, replayed: false };
 }
 
 export async function listCustomerOrders(userId: number) {
