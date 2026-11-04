@@ -4,10 +4,15 @@ import {
   createRestaurantApplication,
   listPublicRestaurants,
   listRestaurantApplications,
+  createOwnerMenuCategory,
+  createOwnerMenuItem,
+  getRestaurantOwnerDashboard,
+  setOwnerMenuItemAvailability,
   updateRestaurantApplicationStatus,
+  upsertOwnerHours,
 } from "./db";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -95,6 +100,60 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить заведения." });
       }
     }),
+  }),
+
+  restaurantOwner: router({
+    dashboard: protectedProcedure.query(async ({ ctx }) => {
+      try {
+        return await getRestaurantOwnerDashboard(ctx.user.id);
+      } catch (error) {
+        if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "У вас нет одобренного заведения владельца." });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить кабинет заведения." });
+      }
+    }),
+    createCategory: protectedProcedure
+      .input(z.object({ name: z.string().trim().min(2).max(120) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await createOwnerMenuCategory(ctx.user.id, input.name);
+        } catch (error) {
+          if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к одобренному заведению." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать категорию." });
+        }
+      }),
+    createItem: protectedProcedure
+      .input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(2).max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), prepMinutes: z.number().int().min(1).max(1440) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await createOwnerMenuItem(ctx.user.id, input);
+        } catch (error) {
+          if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к одобренному заведению." });
+          if (error instanceof Error && error.message === "MENU_CATEGORY_NOT_FOUND") throw new TRPCError({ code: "BAD_REQUEST", message: "Категория не принадлежит вашему заведению." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать блюдо." });
+        }
+      }),
+    setAvailability: protectedProcedure
+      .input(z.object({ itemId: z.number().int().positive(), available: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await setOwnerMenuItemAvailability(ctx.user.id, input.itemId, input.available);
+        } catch (error) {
+          if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к одобренному заведению." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить доступность блюда." });
+        }
+      }),
+    upsertHours: protectedProcedure
+      .input(z.object({ dayOfWeek: z.number().int().min(0).max(6), startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), isClosed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await upsertOwnerHours(ctx.user.id, input);
+        } catch (error) {
+          if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к одобренному заведению." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить график." });
+        }
+      }),
   }),
 
   // TODO: add feature routers here, e.g.

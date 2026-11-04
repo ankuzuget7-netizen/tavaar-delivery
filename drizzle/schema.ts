@@ -70,3 +70,47 @@ export const restaurantMembers = mysqlTable("restaurant_members", {
 
 export type RestaurantMember = typeof restaurantMembers.$inferSelect;
 export type InsertRestaurantMember = typeof restaurantMembers.$inferInsert;
+
+export const menuCategories = mysqlTable("menu_categories", {
+  id: int("id").autoincrement().primaryKey(),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  name: varchar("name", { length: 120 }).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MenuCategory = typeof menuCategories.$inferSelect;
+export type InsertMenuCategory = typeof menuCategories.$inferInsert;
+
+export const menuItems = mysqlTable("menu_items", {
+  id: int("id").autoincrement().primaryKey(),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  categoryId: int("categoryId").notNull().references(() => menuCategories.id),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  priceKopecks: int("priceKopecks").notNull(),
+  prepMinutes: int("prepMinutes").default(30).notNull(),
+  available: int("available").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MenuItem = typeof menuItems.$inferSelect;
+export type InsertMenuItem = typeof menuItems.$inferInsert;
+
+export const restaurantHours = mysqlTable("restaurant_hours", {
+  id: int("id").autoincrement().primaryKey(),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  dayOfWeek: int("dayOfWeek").notNull(),
+  startTime: varchar("startTime", { length: 5 }).notNull(),
+  endTime: varchar("endTime", { length: 5 }).notNull(),
+  isClosed: int("isClosed").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  restaurantDay: uniqueIndex("restaurant_hours_restaurant_day").on(table.restaurantId, table.dayOfWeek),
+}));
+
+export type RestaurantHours = typeof restaurantHours.$inferSelect;
+export type InsertRestaurantHours = typeof restaurantHours.$inferInsert;

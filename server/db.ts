@@ -3,7 +3,10 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertRestaurantApplication,
   InsertUser,
+  menuCategories,
+  menuItems,
   restaurantApplications,
+  restaurantHours,
   restaurantMembers,
   restaurants,
   users,
@@ -189,4 +192,73 @@ export async function listPublicRestaurants() {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   return db.select().from(restaurants).where(eq(restaurants.status, "active"));
+}
+
+async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userId: number) {
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const [membership] = await db
+    .select({ restaurantId: restaurantMembers.restaurantId })
+    .from(restaurantMembers)
+    .innerJoin(restaurants, eq(restaurants.id, restaurantMembers.restaurantId))
+    .where(and(
+      eq(restaurantMembers.userId, userId),
+      eq(restaurantMembers.role, "owner"),
+      eq(restaurants.status, "active"),
+    ))
+    .limit(1);
+  if (!membership) throw new Error("OWNER_RESTAURANT_NOT_FOUND");
+  return membership.restaurantId;
+}
+
+export async function getRestaurantOwnerDashboard(userId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [[restaurant], categories, items, hours] = await Promise.all([
+    db!.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1),
+    db!.select().from(menuCategories).where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id),
+    db!.select().from(menuItems).where(eq(menuItems.restaurantId, restaurantId)).orderBy(menuItems.id),
+    db!.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek),
+  ]);
+  return { restaurant, categories, items, hours };
+}
+
+export async function createOwnerMenuCategory(userId: number, name: string) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const result = await db!.insert(menuCategories).values({ restaurantId, name: name.trim() });
+  return { id: Number(result[0].insertId), restaurantId, name: name.trim() };
+}
+
+export async function createOwnerMenuItem(userId: number, input: {
+  categoryId: number;
+  name: string;
+  description?: string;
+  priceKopecks: number;
+  prepMinutes: number;
+}) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [category] = await db!.select().from(menuCategories).where(and(
+    eq(menuCategories.id, input.categoryId),
+    eq(menuCategories.restaurantId, restaurantId),
+  )).limit(1);
+  if (!category) throw new Error("MENU_CATEGORY_NOT_FOUND");
+  const result = await db!.insert(menuItems).values({ restaurantId, ...input, name: input.name.trim(), description: input.description?.trim() || null });
+  return { id: Number(result[0].insertId), restaurantId };
+}
+
+export async function setOwnerMenuItemAvailability(userId: number, itemId: number, available: boolean) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  await db!.update(menuItems).set({ available: available ? 1 : 0 }).where(and(eq(menuItems.id, itemId), eq(menuItems.restaurantId, restaurantId)));
+  return { itemId, available };
+}
+
+export async function upsertOwnerHours(userId: number, input: { dayOfWeek: number; startTime: string; endTime: string; isClosed: boolean }) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  await db!.insert(restaurantHours).values({ restaurantId, dayOfWeek: input.dayOfWeek, startTime: input.startTime, endTime: input.endTime, isClosed: input.isClosed ? 1 : 0 }).onDuplicateKeyUpdate({
+    set: { startTime: input.startTime, endTime: input.endTime, isClosed: input.isClosed ? 1 : 0 },
+  });
+  return { restaurantId, ...input };
 }
