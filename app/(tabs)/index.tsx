@@ -81,11 +81,11 @@ export default function HomeScreen() {
           <Text style={[styles.sectionMeta, { color: colors.muted }]}>{restaurants.data?.length ?? 0} заведений</Text>
         </View>
         {restaurants.data && restaurants.data.length > 0 ? restaurants.data.map((restaurant) => (
-          <View key={restaurant.id} style={[styles.restaurantCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Pressable key={restaurant.id} onPress={() => router.push(`/restaurant/${restaurant.id}` as never)} style={[styles.restaurantCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={[styles.restaurantIcon, { backgroundColor: colors.primary + "16" }]}><Ionicons name="restaurant-outline" size={25} color={colors.primary} /></View>
             <View style={{ flex: 1 }}><Text style={[styles.restaurantName, { color: colors.foreground }]}>{restaurant.name}</Text><Text style={[styles.restaurantMeta, { color: colors.muted }]}>{restaurant.type} · {restaurant.address}</Text><Text style={[styles.restaurantMeta, { color: colors.muted }]}>Проверенное заведение</Text></View>
             <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-          </View>
+          </Pressable>
         )) : <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.emptyIcon, { backgroundColor: colors.warning + "18" }]}>
             <Ionicons name="storefront-outline" size={28} color={colors.warning} />

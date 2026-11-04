@@ -6,8 +6,15 @@ import {
   listRestaurantApplications,
   createOwnerMenuCategory,
   createOwnerMenuItem,
+  createCustomerOrder,
   getRestaurantOwnerDashboard,
+  getPublicRestaurantMenu,
+  listCustomerOrders,
+  listOwnerNotifications,
+  listOwnerOrders,
+  markOwnerNotificationRead,
   setOwnerMenuItemAvailability,
+  updateOwnerOrderStatus,
   updateRestaurantApplicationStatus,
   upsertOwnerHours,
 } from "./db";
@@ -100,6 +107,29 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить заведения." });
       }
     }),
+    menu: publicProcedure.input(z.object({ restaurantId: z.number().int().positive() })).query(async ({ input }) => {
+      try {
+        return await getPublicRestaurantMenu(input.restaurantId);
+      } catch (error) {
+        if (error instanceof Error && error.message === "RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Заведение не найдено." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить меню." });
+      }
+    }),
+  }),
+
+  customerOrders: router({
+    list: protectedProcedure.query(async ({ ctx }) => listCustomerOrders(ctx.user.id)),
+    create: protectedProcedure
+      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), address: z.string().trim().min(5).max(400), customerComment: z.string().trim().max(1000).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await createCustomerOrder(ctx.user.id, input);
+        } catch (error) {
+          if (error instanceof Error && error.message === "RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Заведение больше недоступно." });
+          if (error instanceof Error && (error.message === "MENU_ITEMS_UNAVAILABLE" || error.message === "INVALID_ORDER_ITEMS")) throw new TRPCError({ code: "BAD_REQUEST", message: "Некоторые блюда недоступны. Обновите меню и попробуйте снова." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось оформить заказ." });
+        }
+      }),
   }),
 
   restaurantOwner: router({
@@ -112,6 +142,22 @@ export const appRouter = router({
         }
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить кабинет заведения." });
       }
+    }),
+    orders: protectedProcedure.query(async ({ ctx }) => {
+      try { return await listOwnerOrders(ctx.user.id); }
+      catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заказам заведения." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить заказы." }); }
+    }),
+    notifications: protectedProcedure.query(async ({ ctx }) => {
+      try { return await listOwnerNotifications(ctx.user.id); }
+      catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к уведомлениям заведения." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить уведомления." }); }
+    }),
+    markNotificationRead: protectedProcedure.input(z.object({ notificationId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      try { return await markOwnerNotificationRead(ctx.user.id, input.notificationId); }
+      catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось отметить уведомление." }); }
+    }),
+    updateOrderStatus: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), status: z.enum(["restaurant_confirmed", "restaurant_rejected", "preparing", "ready", "courier_assigned", "handed_to_courier", "in_transit", "delivered", "completed"]), reason: z.string().trim().max(500).optional() })).mutation(async ({ ctx, input }) => {
+      try { return await updateOwnerOrderStatus(ctx.user.id, input.orderId, input.status, input.reason); }
+      catch (error) { if (error instanceof Error && error.message === "ORDER_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Заказ не найден в вашем заведении." }); if (error instanceof Error && error.message === "INVALID_ORDER_TRANSITION") throw new TRPCError({ code: "CONFLICT", message: "Этот переход статуса сейчас недоступен." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить статус заказа." }); }
     }),
     createCategory: protectedProcedure
       .input(z.object({ name: z.string().trim().min(2).max(120) }))

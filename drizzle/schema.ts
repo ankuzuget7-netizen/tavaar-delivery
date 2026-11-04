@@ -114,3 +114,57 @@ export const restaurantHours = mysqlTable("restaurant_hours", {
 
 export type RestaurantHours = typeof restaurantHours.$inferSelect;
 export type InsertRestaurantHours = typeof restaurantHours.$inferInsert;
+
+export const orders = mysqlTable("orders", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull().references(() => users.id),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  status: mysqlEnum("status", ["placed", "restaurant_confirmed", "preparing", "ready", "courier_assigned", "handed_to_courier", "in_transit", "delivered", "completed", "cancelled", "restaurant_rejected", "payment_error", "refunded", "complaint"]).default("placed").notNull(),
+  fulfillment: mysqlEnum("fulfillment", ["delivery", "pickup"]).default("delivery").notNull(),
+  address: varchar("address", { length: 400 }).notNull(),
+  deliveryFeeKopecks: int("deliveryFeeKopecks").default(0).notNull(),
+  totalKopecks: int("totalKopecks").notNull(),
+  customerComment: text("customerComment"),
+  restaurantComment: text("restaurantComment"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = typeof orders.$inferInsert;
+
+export const orderItems = mysqlTable("order_items", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull().references(() => orders.id),
+  menuItemId: int("menuItemId").notNull().references(() => menuItems.id),
+  nameSnapshot: varchar("nameSnapshot", { length: 160 }).notNull(),
+  priceKopecks: int("priceKopecks").notNull(),
+  quantity: int("quantity").notNull(),
+  lineTotalKopecks: int("lineTotalKopecks").notNull(),
+});
+
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = typeof orderItems.$inferInsert;
+
+export const orderStatusHistory = mysqlTable("order_status_history", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull().references(() => orders.id),
+  status: mysqlEnum("status", ["placed", "restaurant_confirmed", "preparing", "ready", "courier_assigned", "handed_to_courier", "in_transit", "delivered", "completed", "cancelled", "restaurant_rejected", "payment_error", "refunded", "complaint"]).notNull(),
+  changedByUserId: int("changedByUserId").references(() => users.id),
+  reason: varchar("reason", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  restaurantId: int("restaurantId").references(() => restaurants.id),
+  orderId: int("orderId").references(() => orders.id),
+  type: mysqlEnum("type", ["new_order", "order_status", "system"]).notNull(),
+  title: varchar("title", { length: 160 }).notNull(),
+  body: varchar("body", { length: 500 }).notNull(),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Notification = typeof notifications.$inferSelect;

@@ -1,10 +1,14 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertRestaurantApplication,
   InsertUser,
   menuCategories,
   menuItems,
+  notifications,
+  orderItems,
+  orderStatusHistory,
+  orders,
   restaurantApplications,
   restaurantHours,
   restaurantMembers,
@@ -261,4 +265,112 @@ export async function upsertOwnerHours(userId: number, input: { dayOfWeek: numbe
     set: { startTime: input.startTime, endTime: input.endTime, isClosed: input.isClosed ? 1 : 0 },
   });
   return { restaurantId, ...input };
+}
+
+export async function getPublicRestaurantMenu(restaurantId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const [restaurant] = await db.select().from(restaurants).where(and(eq(restaurants.id, restaurantId), eq(restaurants.status, "active"))).limit(1);
+  if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
+  const [categories, items] = await Promise.all([
+    db.select().from(menuCategories).where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id),
+    db.select().from(menuItems).where(and(eq(menuItems.restaurantId, restaurantId), eq(menuItems.available, 1))).orderBy(menuItems.id),
+  ]);
+  return { restaurant, categories, items };
+}
+
+export async function createCustomerOrder(userId: number, input: {
+  restaurantId: number;
+  items: { menuItemId: number; quantity: number }[];
+  fulfillment: "delivery" | "pickup";
+  address: string;
+  customerComment?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  return db.transaction(async (tx) => {
+    const [restaurant] = await tx.select().from(restaurants).where(and(eq(restaurants.id, input.restaurantId), eq(restaurants.status, "active"))).limit(1);
+    if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
+    const itemIds = [...new Set(input.items.map((item) => item.menuItemId))];
+    const menu = await tx.select().from(menuItems).where(and(eq(menuItems.restaurantId, input.restaurantId), eq(menuItems.available, 1), inArray(menuItems.id, itemIds)));
+    if (menu.length !== itemIds.length) throw new Error("MENU_ITEMS_UNAVAILABLE");
+    const menuById = new Map(menu.map((item) => [item.id, item]));
+    const lines = input.items.map((line) => {
+      const item = menuById.get(line.menuItemId);
+      if (!item || !Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 99) throw new Error("INVALID_ORDER_ITEMS");
+      return { menuItemId: item.id, nameSnapshot: item.name, priceKopecks: item.priceKopecks, quantity: line.quantity, lineTotalKopecks: item.priceKopecks * line.quantity };
+    });
+    const totalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
+    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, address: input.address.trim(), customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
+    const orderId = Number(orderResult[0].insertId);
+    await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));
+    await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });
+    const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, input.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
+    if (owners.length > 0) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: input.restaurantId, orderId, type: "new_order" as const, title: "Новый заказ", body: `Заказ #${orderId} на ${(totalKopecks / 100).toFixed(2)} ₽ ожидает подтверждения.` })));
+    return { orderId, totalKopecks, status: "placed" as const };
+  });
+}
+
+export async function listCustomerOrders(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  return db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, address: orders.address, totalKopecks: orders.totalKopecks, createdAt: orders.createdAt, restaurantName: restaurants.name }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(eq(orders.customerId, userId)).orderBy(desc(orders.createdAt));
+}
+
+export async function listOwnerOrders(userId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const ownerOrders = await db!.select().from(orders).where(eq(orders.restaurantId, restaurantId)).orderBy(desc(orders.createdAt));
+  const items = ownerOrders.length ? await db!.select().from(orderItems).where(inArray(orderItems.orderId, ownerOrders.map((order) => order.id))) : [];
+  return ownerOrders.map((order) => ({ ...order, items: items.filter((item) => item.orderId === order.id) }));
+}
+
+const ownerOrderTransitions: Record<string, string[]> = {
+  placed: ["restaurant_confirmed", "restaurant_rejected"],
+  restaurant_confirmed: ["preparing", "restaurant_rejected"],
+  preparing: ["ready"],
+  ready: ["courier_assigned", "completed"],
+  courier_assigned: ["handed_to_courier"],
+  handed_to_courier: ["in_transit"],
+  in_transit: ["delivered"],
+  delivered: ["completed"],
+};
+const orderStatusTitles: Record<string, string> = {
+  placed: "оформлен",
+  restaurant_confirmed: "принят рестораном",
+  preparing: "готовится",
+  ready: "готов",
+  courier_assigned: "курьер назначен",
+  handed_to_courier: "передан курьеру",
+  in_transit: "в пути",
+  delivered: "доставлен",
+  completed: "завершён",
+  restaurant_rejected: "отклонён рестораном",
+};
+
+export async function updateOwnerOrderStatus(userId: number, orderId: number, status: string, reason?: string) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  return db!.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId))).limit(1);
+    if (!order) throw new Error("ORDER_NOT_FOUND");
+    if (!ownerOrderTransitions[order.status]?.includes(status)) throw new Error("INVALID_ORDER_TRANSITION");
+    await tx.update(orders).set({ status: status as typeof order.status, restaurantComment: reason?.trim() || null }).where(eq(orders.id, orderId));
+    await tx.insert(orderStatusHistory).values({ orderId, status: status as typeof order.status, changedByUserId: userId, reason: reason?.trim() || null });
+    await tx.insert(notifications).values({ userId: order.customerId, restaurantId, orderId, type: "order_status", title: "Статус заказа изменён", body: `Заказ #${orderId}: ${orderStatusTitles[status] ?? status}.` });
+    return { orderId, status };
+  });
+}
+
+export async function listOwnerNotifications(userId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  return db!.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.restaurantId, restaurantId))).orderBy(desc(notifications.createdAt)).limit(100);
+}
+
+export async function markOwnerNotificationRead(userId: number, notificationId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  await db!.update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId), eq(notifications.restaurantId, restaurantId)));
+  return { notificationId, read: true };
 }

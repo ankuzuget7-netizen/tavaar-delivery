@@ -11,11 +11,11 @@
 - [ ] Provide dish details with photo, name, description, price, ingredients, modifiers, portion size, quantity, item comment and add-to-cart behavior when an approved restaurant has an available menu.
 
 ## Cart, checkout and orders
-- [ ] Enforce one restaurant per cart. When adding from another restaurant, show exactly «В вашей корзине уже есть блюда другого заведения. Очистить корзину и добавить новый заказ?» with «Отмена» and «Очистить корзину и продолжить».
-- [ ] Calculate item prices, quantities, modifiers, discounts, promo codes, delivery and total using server-authoritative integer kopecks; never accept client-submitted authoritative totals.
-- [ ] Before creating an order, the server must re-check restaurant availability, dish/modifier availability and prices, address/service area, delivery conditions, fulfillment method, payment method and promo validity.
-- [ ] Collect checkout address, entrance, floor, apartment, intercom, phone, courier comment, restaurant comment, delivery/pickup, payment method, promo code and confirmation; do not claim online payment success without server/provider confirmation.
-- [ ] Implement server-owned order transitions: оформлен, ожидает подтверждения ресторана, принят, готовится, готов, курьер назначен, передан курьеру, в пути, доставлен, завершен; plus cancellation, restaurant refusal, payment error, refund, complaint and status history.
+- [ ] Enforce one restaurant per cart. When adding from another restaurant, show exactly «В вашей корзине уже есть блюда другого заведения. Очистить корзину и добавить новый заказ?» with «Отмена» and «Очистить корзину и продолжить». Phase 5 evidence: the current checkout is restaurant-specific, but a persistent multi-screen cart and cross-restaurant replacement dialog remain open.
+- [ ] Calculate item prices, quantities, modifiers, discounts, promo codes, delivery and total using server-authoritative integer kopecks; never accept client-submitted authoritative totals. Phase 5 evidence: order creation reloads active menu prices server-side, rejects unavailable items and computes immutable line/total kopecks; modifiers, discounts, promos and delivery pricing remain open.
+- [ ] Before creating an order, the server must re-check restaurant availability, dish/modifier availability and prices, address/service area, delivery conditions, fulfillment method, payment method and promo validity. Phase 5 evidence: restaurant status and available menu item IDs/prices are rechecked inside the creation transaction; address/service area, payment and promotion rules remain open.
+- [ ] Collect checkout address, entrance, floor, apartment, intercom, phone, courier comment, restaurant comment, delivery/pickup, payment method, promo code and confirmation; do not claim online payment success without server/provider confirmation. Phase 5 evidence: current checkout collects address, fulfillment method and restaurant comment; remaining fields and provider-confirmed payments remain open.
+- [ ] Implement server-owned order transitions: оформлен, ожидает подтверждения ресторана, принят, готовится, готов, курьер назначен, передан курьеру, в пути, доставлен, завершен; plus cancellation, restaurant refusal, payment error, refund, complaint and status history. Phase 5 evidence: orders, immutable status history, owner transition validation and customer/owner notification records are implemented through completion; cancellations, refunds, complaints and live push delivery remain open.
 
 ## Identity, restaurant onboarding and operations
 - [ ] Implement phone registration/login and OTP with expiry, one-time use, protected storage, brute-force/resend limits, no OTP logs and no simulated success when an SMS provider is not configured.
@@ -29,7 +29,7 @@
 - [ ] Implement 8% default platform commission with integer/decimal-safe arithmetic, rate snapshots for new orders, order/accrual/commission/settlement/refund ledgers, idempotent accrual and no deletion of financial history by ordinary admin actions.
 - [ ] Implement a payment-provider adapter boundary for a selected Russian provider (for example, ЮKassa) with idempotency, server-side status verification, authenticated webhooks, refunds/cancellations/reconciliation and no card storage; no fake payment success.
 - [ ] Implement in-app support with FAQ, contact form, order/payment/restaurant complaints, conversation history and ticket statuses; keep external Telegram/MAX channels optional.
-- [ ] Implement durable notification inbox/outbox and a push-provider boundary; do not leak personal data in push text.
+- [ ] Implement durable notification inbox/outbox and a push-provider boundary; do not leak personal data in push text. Phase 5 evidence: durable in-app owner notifications are created for new orders and customer status changes, with read tracking; push-provider delivery remains open.
 
 ## Security, legal and release evidence
 - [ ] Validate inputs and uploads, use parameterized queries/ORM, enforce object-level authorization, rate limiting, safe sessions/cookies, request/upload limits, XSS/CSRF protections where applicable, secret separation and audit access to personal data.
