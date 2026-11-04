@@ -13,6 +13,8 @@ import {
   listOwnerNotifications,
   listOwnerOrders,
   markOwnerNotificationRead,
+  registerPushToken,
+  deactivatePushToken,
   setOwnerMenuItemAvailability,
   updateOwnerOrderStatus,
   updateRestaurantApplicationStatus,
@@ -130,6 +132,17 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось оформить заказ." });
         }
       }),
+  }),
+
+  push: router({
+    register: protectedProcedure.input(z.object({ token: z.string().trim().min(10).max(512), platform: z.enum(["ios", "android", "web"]) })).mutation(async ({ ctx, input }) => {
+      try { return await registerPushToken(ctx.user.id, input.token, input.platform); }
+      catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось включить push-уведомления." }); }
+    }),
+    unregister: protectedProcedure.input(z.object({ token: z.string().trim().min(10).max(512) })).mutation(async ({ ctx, input }) => {
+      try { return await deactivatePushToken(ctx.user.id, input.token); }
+      catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось отключить push-уведомления." }); }
+    }),
   }),
 
   restaurantOwner: router({

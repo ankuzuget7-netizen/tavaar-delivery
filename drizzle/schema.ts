@@ -168,3 +168,15 @@ export const notifications = mysqlTable("notifications", {
 });
 
 export type Notification = typeof notifications.$inferSelect;
+
+export const pushTokens = mysqlTable("push_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  token: varchar("token", { length: 512 }).notNull().unique(),
+  platform: varchar("platform", { length: 32 }).notNull(),
+  active: int("active").default(1).notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PushToken = typeof pushTokens.$inferSelect;

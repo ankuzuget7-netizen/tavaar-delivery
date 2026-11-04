@@ -29,7 +29,7 @@
 - [ ] Implement 8% default platform commission with integer/decimal-safe arithmetic, rate snapshots for new orders, order/accrual/commission/settlement/refund ledgers, idempotent accrual and no deletion of financial history by ordinary admin actions.
 - [ ] Implement a payment-provider adapter boundary for a selected Russian provider (for example, ЮKassa) with idempotency, server-side status verification, authenticated webhooks, refunds/cancellations/reconciliation and no card storage; no fake payment success.
 - [ ] Implement in-app support with FAQ, contact form, order/payment/restaurant complaints, conversation history and ticket statuses; keep external Telegram/MAX channels optional.
-- [ ] Implement durable notification inbox/outbox and a push-provider boundary; do not leak personal data in push text. Phase 5 evidence: durable in-app owner notifications are created for new orders and customer status changes, with read tracking; push-provider delivery remains open.
+- [ ] Implement durable notification inbox/outbox and a push-provider boundary; do not leak personal data in push text. Phase 6 evidence: `push_tokens` registration, Expo push delivery, authenticated `/api/ws` connections, post-commit `order.created`/`order.status_changed` events and client query invalidation are implemented; provider receipts, token cleanup and native-device delivery verification remain open.
 
 ## Security, legal and release evidence
 - [ ] Validate inputs and uploads, use parameterized queries/ORM, enforce object-level authorization, rate limiting, safe sessions/cookies, request/upload limits, XSS/CSRF protections where applicable, secret separation and audit access to personal data.

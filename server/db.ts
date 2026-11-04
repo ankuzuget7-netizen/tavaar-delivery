@@ -9,12 +9,14 @@ import {
   orderItems,
   orderStatusHistory,
   orders,
+  pushTokens,
   restaurantApplications,
   restaurantHours,
   restaurantMembers,
   restaurants,
   users,
 } from "../drizzle/schema";
+import { broadcastToUser, sendExpoPushNotifications } from "./_core/realtime";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -288,7 +290,7 @@ export async function createCustomerOrder(userId: number, input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [restaurant] = await tx.select().from(restaurants).where(and(eq(restaurants.id, input.restaurantId), eq(restaurants.status, "active"))).limit(1);
     if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
     const itemIds = [...new Set(input.items.map((item) => item.menuItemId))];
@@ -307,8 +309,12 @@ export async function createCustomerOrder(userId: number, input: {
     await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });
     const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, input.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
     if (owners.length > 0) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: input.restaurantId, orderId, type: "new_order" as const, title: "Новый заказ", body: `Заказ #${orderId} на ${(totalKopecks / 100).toFixed(2)} ₽ ожидает подтверждения.` })));
-    return { orderId, totalKopecks, status: "placed" as const };
+    const ownerTokens = owners.length ? await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(inArray(pushTokens.userId, owners.map((owner) => owner.userId)), eq(pushTokens.active, 1))) : [];
+    return { orderId, totalKopecks, status: "placed" as const, ownerUserIds: owners.map((owner) => owner.userId), ownerTokens: ownerTokens.map((item) => item.token) };
   });
+  for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.created", orderId: result.orderId, status: result.status });
+  void sendExpoPushNotifications(result.ownerTokens, { title: "Новый заказ", body: `Заказ #${result.orderId} ожидает подтверждения.`, data: { orderId: result.orderId, type: "new_order" } });
+  return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status };
 }
 
 export async function listCustomerOrders(userId: number) {
@@ -351,15 +357,21 @@ const orderStatusTitles: Record<string, string> = {
 export async function updateOwnerOrderStatus(userId: number, orderId: number, status: string, reason?: string) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
-  return db!.transaction(async (tx) => {
+  const result = await db!.transaction(async (tx) => {
     const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId))).limit(1);
     if (!order) throw new Error("ORDER_NOT_FOUND");
     if (!ownerOrderTransitions[order.status]?.includes(status)) throw new Error("INVALID_ORDER_TRANSITION");
     await tx.update(orders).set({ status: status as typeof order.status, restaurantComment: reason?.trim() || null }).where(eq(orders.id, orderId));
     await tx.insert(orderStatusHistory).values({ orderId, status: status as typeof order.status, changedByUserId: userId, reason: reason?.trim() || null });
     await tx.insert(notifications).values({ userId: order.customerId, restaurantId, orderId, type: "order_status", title: "Статус заказа изменён", body: `Заказ #${orderId}: ${orderStatusTitles[status] ?? status}.` });
-    return { orderId, status };
+    const customerTokens = await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(eq(pushTokens.userId, order.customerId), eq(pushTokens.active, 1)));
+    const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
+    return { orderId, status, customerId: order.customerId, customerTokens: customerTokens.map((item) => item.token), ownerUserIds: owners.map((owner) => owner.userId) };
   });
+  broadcastToUser(result.customerId, { type: "order.status_changed", orderId: result.orderId, status: result.status });
+  for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.status_changed", orderId: result.orderId, status: result.status });
+  void sendExpoPushNotifications(result.customerTokens, { title: "Статус заказа изменён", body: `Заказ #${result.orderId}: ${orderStatusTitles[result.status] ?? result.status}.`, data: { orderId: result.orderId, status: result.status, type: "order_status" } });
+  return { orderId: result.orderId, status: result.status };
 }
 
 export async function listOwnerNotifications(userId: number) {
@@ -373,4 +385,18 @@ export async function markOwnerNotificationRead(userId: number, notificationId: 
   const restaurantId = await getOwnedRestaurantId(db, userId);
   await db!.update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId), eq(notifications.restaurantId, restaurantId)));
   return { notificationId, read: true };
+}
+
+export async function registerPushToken(userId: number, token: string, platform: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  await db.insert(pushTokens).values({ userId, token, platform, active: 1, lastSeenAt: new Date() }).onDuplicateKeyUpdate({ set: { userId, platform, active: 1, lastSeenAt: new Date() } });
+  return { registered: true };
+}
+
+export async function deactivatePushToken(userId: number, token: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  await db.update(pushTokens).set({ active: 0, lastSeenAt: new Date() }).where(and(eq(pushTokens.userId, userId), eq(pushTokens.token, token)));
+  return { deactivated: true };
 }

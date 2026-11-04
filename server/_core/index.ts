@@ -8,10 +8,12 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { createCorsMiddleware } from "./cors";
 import { clearLegacySessionCookie } from "./cookies";
+import { attachRealtime } from "./realtime";
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  attachRealtime(server);
 
   app.use(createCorsMiddleware());
   app.use(clearLegacySessionCookie());
