@@ -31,6 +31,8 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
+!resources/certs/
+!resources/certs/russian_trusted_ca_bundle.pem
 
 # local env files
 .env*.local

@@ -17,7 +17,8 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }).unique(),
   passwordHash: text("passwordHash"),
   emailVerifiedAt: timestamp("emailVerifiedAt"),
-  phone: varchar("phone", { length: 32 }),
+  phone: varchar("phone", { length: 32 }).unique(),
+  phoneVerifiedAt: timestamp("phoneVerifiedAt"),
   authVersion: int("authVersion").default(1).notNull(),
   failedLoginCount: int("failedLoginCount").default(0).notNull(),
   lockedUntil: timestamp("lockedUntil"),
@@ -243,6 +244,28 @@ export const passwordResetTokens = mysqlTable("password_reset_tokens", {
   tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
   expiresAt: timestamp("expiresAt").notNull(),
   usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const phoneAuthChallenges = mysqlTable("phone_auth_challenges", {
+  id: int("id").autoincrement().primaryKey(),
+  phone: varchar("phone", { length: 16 }).notNull(),
+  channel: mysqlEnum("channel", ["telegram", "max"]).notNull(),
+  purpose: mysqlEnum("purpose", ["register", "login"]).notNull(),
+  stateHash: varchar("stateHash", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 120 }),
+  termsAcceptedAt: timestamp("termsAcceptedAt"),
+  privacyAcceptedAt: timestamp("privacyAcceptedAt"),
+  providerUserId: varchar("providerUserId", { length: 128 }),
+  providerChatId: varchar("providerChatId", { length: 128 }),
+  linkedAt: timestamp("linkedAt"),
+  codeHash: varchar("codeHash", { length: 64 }),
+  codeExpiresAt: timestamp("codeExpiresAt"),
+  resendAvailableAt: timestamp("resendAvailableAt"),
+  attempts: int("attempts").default(0).notNull(),
+  verifiedAt: timestamp("verifiedAt"),
+  consumedAt: timestamp("consumedAt"),
+  expiresAt: timestamp("expiresAt").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

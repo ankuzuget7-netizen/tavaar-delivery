@@ -9,6 +9,8 @@ import { createContext } from "./context";
 import { createCorsMiddleware } from "./cors";
 import { clearLegacySessionCookie } from "./cookies";
 import { attachRealtime } from "./realtime";
+import { parseBotStart, type PhoneChannel } from "./bots";
+import { deliverBotCode, handleBotStart } from "../phone-auth";
 
 async function startServer() {
   const app = express();
@@ -27,6 +29,28 @@ async function startServer() {
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
   });
+
+  const botWebhook = (channel: PhoneChannel) => async (req: express.Request, res: express.Response) => {
+    const expected = channel === "telegram" ? process.env.TG_BOT_WEBHOOK_SECRET : process.env.MAX_BOT_WEBHOOK_SECRET;
+    const headerName = channel === "telegram" ? "x-telegram-bot-api-secret-token" : "x-max-bot-api-secret";
+    if (expected && req.header(headerName) !== expected) {
+      res.status(401).json({ ok: false });
+      return;
+    }
+    try {
+      const start = parseBotStart(channel, req.body);
+      if (start) await deliverBotCode(await handleBotStart(channel, start.state, start.userId, start.chatId));
+    } catch (error) {
+      if (error instanceof Error && error.message === "BOT_DELIVERY_FAILED") {
+        res.status(503).json({ ok: false });
+        return;
+      }
+      // Invalid or expired states are acknowledged so providers do not retry them.
+    }
+    res.json({ ok: true });
+  };
+  app.post("/api/bots/telegram/webhook", botWebhook("telegram"));
+  app.post("/api/bots/max/webhook", botWebhook("max"));
 
   app.use(
     "/api/trpc",

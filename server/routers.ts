@@ -34,6 +34,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { sdk } from "./_core/sdk";
+import type { TrpcContext } from "./_core/context";
 import {
   authenticateEmail,
   createAddress,
@@ -52,12 +53,50 @@ import {
   updateAddress,
   verifyEmailAddress,
 } from "./account";
+import { getPhoneChallengeStatus, requestPhoneChallenge, verifyPhoneChallenge } from "./phone-auth";
+import type { PhoneChannel } from "./_core/bots";
+
+async function createPhoneSession(ctx: Pick<TrpcContext, "req" | "res">, user: any) {
+  const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion });
+  ctx.res.cookie(getSessionCookieName(ctx.req), sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: 365 * 24 * 60 * 60 * 1000 });
+  return { success: true as const, sessionToken, user: { id: user.id, name: user.name, email: user.email, phone: user.phone } };
+}
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(({ ctx }) => ctx.user ? ({ id: ctx.user.id, openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email, emailVerifiedAt: ctx.user.emailVerifiedAt, phone: ctx.user.phone, role: ctx.user.role, loginMethod: ctx.user.loginMethod, lastSignedIn: ctx.user.lastSignedIn }) : null),
+    me: publicProcedure.query(({ ctx }) => ctx.user ? ({ id: ctx.user.id, openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email, emailVerifiedAt: ctx.user.emailVerifiedAt, phone: ctx.user.phone, phoneVerifiedAt: ctx.user.phoneVerifiedAt, role: ctx.user.role, loginMethod: ctx.user.loginMethod, lastSignedIn: ctx.user.lastSignedIn }) : null),
+    requestPhoneChallenge: publicProcedure.input(z.object({ phone: z.string().trim().min(12).max(16), channel: z.enum(["telegram", "max"]), purpose: z.enum(["register", "login"]), name: z.string().trim().min(2).max(120).optional(), acceptTerms: z.boolean().optional(), acceptPrivacy: z.boolean().optional() })).mutation(async ({ input }) => {
+      try {
+        return await requestPhoneChallenge(input as { phone: string; channel: PhoneChannel; purpose: "register" | "login"; name?: string; acceptTerms?: boolean; acceptPrivacy?: boolean });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "INVALID_PHONE") throw new TRPCError({ code: "BAD_REQUEST", message: "Введите номер в формате +7XXXXXXXXXX." });
+        if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован. Войдите через подтверждение кода." });
+        if (code === "CONSENTS_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Нужно принять пользовательское соглашение и политику конфиденциальности." });
+        if (code === "CHALLENGE_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." });
+        if (["BOT_NOT_CONFIGURED", "BOT_AUTH_FAILED", "BOT_PROVIDER_ERROR", "BOT_USERNAME_UNAVAILABLE", "MAX_TLS_CA_MISSING"].includes(code)) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Выбранный бот временно недоступен. Попробуйте другой способ." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось начать подтверждение номера." });
+      }
+    }),
+    phoneChallengeStatus: publicProcedure.input(z.object({ challengeId: z.number().int().positive() })).query(async ({ input }) => {
+      try { return await getPhoneChallengeStatus(input.challengeId); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Сеанс подтверждения истёк. Запросите новый код." }); }
+    }),
+    verifyPhoneCode: publicProcedure.input(z.object({ challengeId: z.number().int().positive(), code: z.string().regex(/^\d{4}$/) })).mutation(async ({ input, ctx }) => {
+      try {
+        const user = await verifyPhoneChallenge(input.challengeId, input.code);
+        return await createPhoneSession(ctx, user);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "INVALID_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Неверный код подтверждения." });
+        if (code === "CODE_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Запросите новый код позже." });
+        if (code === "CODE_EXPIRED" || code === "CHALLENGE_EXPIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Код истёк. Начните подтверждение номера заново." });
+        if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован." });
+        if (code === "PHONE_NOT_VERIFIED") throw new TRPCError({ code: "UNAUTHORIZED", message: "Номер не подтверждён для входа." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось подтвердить номер." });
+      }
+    }),
     register: publicProcedure.input(z.object({ name: z.string().trim().min(2).max(120), email: z.string().email().max(320), password: z.string().min(10).max(128), confirmPassword: z.string().min(10).max(128), acceptTerms: z.literal(true), acceptPrivacy: z.literal(true) }).refine((input) => input.password === input.confirmPassword, { message: "Пароли не совпадают", path: ["confirmPassword"] })).mutation(async ({ input }) => {
       try { return await registerEmailAccount(input); } catch (error) { const message = error instanceof Error ? error.message : ""; if (message === "EMAIL_ALREADY_EXISTS") throw new TRPCError({ code: "CONFLICT", message: "Пользователь с таким email уже зарегистрирован." }); if (message === "WEAK_PASSWORD") throw new TRPCError({ code: "BAD_REQUEST", message: "Пароль: минимум 10 символов, буквы разных регистров и цифра." }); if (message === "CONSENTS_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Нужно принять пользовательское соглашение и политику конфиденциальности." }); if (message === "EMAIL_DELIVERY_FAILED") throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Аккаунт не создан: не удалось отправить письмо подтверждения. Попробуйте позже." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать аккаунт." }); }
     }),
@@ -77,7 +116,7 @@ export const appRouter = router({
       } as const;
     }),
     profile: protectedProcedure.query(({ ctx }) => getAccountProfile(ctx.user.id)),
-    updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().max(32).optional() })).mutation(({ ctx, input }) => updateAccountProfile(ctx.user.id, input)),
+    updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().max(32).optional() })).mutation(async ({ ctx, input }) => { try { return await updateAccountProfile(ctx.user.id, input); } catch (error) { if (error instanceof Error && error.message === "PHONE_CHANGE_REQUIRES_CONFIRMATION") throw new TRPCError({ code: "CONFLICT", message: "Для смены подтверждённого номера нужно пройти новое подтверждение через Telegram или MAX." }); throw error; } }),
     addresses: router({
       list: protectedProcedure.query(({ ctx }) => listAddresses(ctx.user.id)),
       create: protectedProcedure.input(z.object({ city: z.string().trim().min(2).max(120), street: z.string().trim().min(2).max(160), house: z.string().trim().min(1).max(32), entrance: z.string().trim().max(16).optional(), floor: z.string().trim().max(16).optional(), apartment: z.string().trim().max(16).optional(), intercom: z.string().trim().max(32).optional(), comment: z.string().trim().max(500).optional(), isDefault: z.boolean().optional() })).mutation(({ ctx, input }) => createAddress(ctx.user.id, input)),

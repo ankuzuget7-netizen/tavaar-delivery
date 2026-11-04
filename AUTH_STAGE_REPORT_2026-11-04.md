@@ -2,38 +2,59 @@
 
 ## Реализовано в текущем checkpoint
 
-Добавлены application-owned email/password API и клиентские экраны на существующем Expo Router / React Native / TypeScript / Express / tRPC / Drizzle / MySQL стеке. Пароли не сохраняются в открытом виде: используется salted `scrypt`. Email нормализуется и имеет уникальное ограничение. Регистрация требует имени, email, пароля, повторения пароля и принятия двух согласий.
+Новая регистрация и авторизация переведены на телефонный номер в формате `+7XXXXXXXXXX`. Интерфейс больше не запрашивает email или пароль: пользователь вводит имя и телефон, выбирает Telegram или MAX, открывает deep link бота и нажимает «Старт».
 
-Добавлены одноразовые хешированные токены подтверждения email и восстановления пароля с ограниченным сроком действия. Добавлены ограничения повторной отправки, пять неудачных попыток входа с временной блокировкой, безопасные generic-ошибки и `authVersion` для отзыва старых email-сессий после сброса пароля. `auth.me` больше не возвращает password hash или поля защиты аккаунта.
+Добавлен серверный `phone_auth_challenges` flow. В базе сохраняются только хеш состояния deep link и хеш одноразового 4-значного кода. Состояние challenge действует ограниченное время, код действует 5 минут, используется один раз, ограничен пятью ошибочными попытками, а повторный запрос блокируется на 60 секунд. Номер телефона уникален, подтверждённый номер получает `phoneVerifiedAt`, а обычное редактирование профиля не может заменить подтверждённый login-телефон.
 
-Добавлены экраны входа, регистрации, восстановления и подтверждения email. Для native-сессии токен хранится через SecureStore; для Web используется HttpOnly session cookie. Добавлены экраны профиля, настроек, адресов и server-backed favorites. Адреса поддерживают добавление, редактирование, удаление с подтверждением и выбор основного адреса. Телефон остаётся необязательным и редактируется в профиле.
+Добавлены серверные адаптеры Telegram Bot API и MAX Bot API. Telegram использует `getMe`, ссылку `https://t.me/<bot_username>?start=<state>` и `sendMessage`. MAX использует `/me`, ссылку `https://max.ru/<bot_username>?start=<state>`, событие `bot_started.payload` и `POST /messages?user_id=...`. Токены читаются только из защищённых переменных `TG_BOT_TOKEN` и `MAX_BOT_TOKEN` и не выводятся в логи или клиентский bundle.
 
-## SMTP-статус
+Добавлены webhook endpoints:
 
-SMTP-секреты сохранены через защищённые настройки проекта: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` и `SMTP_SECURE`. В backend добавлен Nodemailer transport, русские шаблоны verification/reset писем и ссылки на существующие Expo Router экраны. Raw-токены не сохраняются в базе и не выводятся в логи.
+- `POST /api/bots/telegram/webhook`
+- `POST /api/bots/max/webhook`
 
-DNS-проверка SMTP host проходит, но handshake с текущей парой учётных данных возвращает `EAUTH` — сервер отвергает авторизацию. Поэтому письма не считаются отправленными, а registration/resend/reset возвращают безопасную ошибку после неудачной попытки доставки. Для завершения настройки нужен корректный SMTP login и пароль либо provider-specific app password/token; значения следует заменить только через защищённую карточку секретов проекта.
+Они связывают opaque state с provider user/chat identifier, создают код и отправляют его через выбранного бота. При наличии `TG_BOT_WEBHOOK_SECRET` или `MAX_BOT_WEBHOOK_SECRET` проверяется соответствующий заголовок webhook. MAX-запросы используют официальный CA-бандл Минцифры `resources/certs/russian_trusted_ca_bundle.pem`; отключение проверки TLS не используется.
 
-SMS, SMS OTP и авторизация по номеру телефона не реализуются и не используются.
+Существующие email/password-поля, таблицы и backend-процедуры сохранены для совместимости старых аккаунтов и данных. Новая клиентская регистрация/авторизация ими не пользуется. Существующие заказы, рестораны, кабинеты и роли не переписаны.
+
+## Изменённые файлы и миграция
+
+- `server/phone-auth.ts` — challenge, нормализация номера, TTL, хеш кода, resend guard, подтверждение и выдача пользователя.
+- `server/_core/bots.ts` — Telegram/MAX API, deep links, parsing webhook updates и безопасный MAX TLS.
+- `server/_core/index.ts` — webhook endpoints и optional webhook-secret checks.
+- `server/routers.ts` — tRPC procedures `requestPhoneChallenge`, `phoneChallengeStatus`, `verifyPhoneCode` и phone session issuance.
+- `drizzle/schema.ts` — `phoneVerifiedAt`, unique phone и `phone_auth_challenges`.
+- `drizzle/0012_glamorous_mysterio.sql` плюс `drizzle/meta/0012_snapshot.json` и журнал миграций.
+- `app/auth/login.tsx`, `app/auth/register.tsx`, `app/auth/phone-code.tsx` — телефонный UI и deep-link confirmation.
+- `app/(tabs)/profile.tsx`, `app/account/settings.tsx`, `lib/_core/auth.ts` — профиль, verified phone и legacy email compatibility.
+- `public/manus-routes.json` — маршрут `/auth/phone-code` и остальные Expo Web routes.
+- `README.md`, `plan.md`, `TODO.md` — обновлённые требования и честный статус.
+
+Миграция добавляет:
+
+- `users.phoneVerifiedAt`;
+- уникальное ограничение `users.phone`;
+- таблицу `phone_auth_challenges` с channel/purpose/state hash/provider identifiers/code hash/expiry/attempts/consumed markers.
+
+Миграция применена к управляемой MySQL-базе. Таблица проверена через `SHOW TABLES`.
 
 ## Проверки
 
-`pnpm check` — проходит.
+- `pnpm check` — проходит.
+- `pnpm lint` — проходит; остаётся только существующее предупреждение pnpm о deprecated `pnpm`-поле и предупреждение Node о module type в ESLint config.
+- `pnpm test` — 27 тестов прошли, 1 существующий logout-тест пропущен.
+- `pnpm build` — проходит, backend bundle собран в `dist/index.js`.
+- API `GET /api/health` — отвечает `{"ok":true,...}`.
+- Интеграционный прогон с защищёнными токенами получил профили обоих ботов: Telegram `Akdov17_bot` и MAX `se14900789_bot`; значения токенов не выводились.
+- Интеграционный прогон для обоих каналов проверил формирование deep link, state binding, хешированный код, 60-секундный resend guard, успешное создание/подтверждение test account и single-use запрет повторного кода. Test users/challenges удалены после проверки.
+- Прямой парсер проверен на Telegram `/start <state>` и официальном MAX `bot_started.payload`.
+- Реальная отправка в пользовательский Telegram/MAX чат не выполнялась, потому что для неё требуется реальный пользователь, открывший бота; фиктивная доставка не заявляется.
 
-`pnpm lint` — проходит после исправления новых hook/unused-import замечаний.
+## Требует участия пользователя или production-инфраструктуры
 
-`pnpm test -- --reporter=verbose` — 27 тестов прошли, 1 существующий logout-тест пропущен.
+1. На публичном HTTPS-домене зарегистрировать Telegram webhook на `/api/bots/telegram/webhook` и MAX subscription на `/api/bots/max/webhook` с update type `bot_started` (MAX) и соответствующим webhook secret.
+2. Открыть каждый deep link в реальном Telegram/MAX аккаунте, нажать «Старт», получить код и завершить регистрацию/вход на Android/Web. Это подтвердит delivery path, который нельзя доказать синтетическим chat ID.
+3. Убедиться, что выбранный публичный домен доступен провайдерам на HTTPS/443 и содержит полную TLS-цепочку; Preview localhost не является production webhook endpoint.
+4. Отдельно закончить rate limiting по IP/device, административную MFA, аудит действий, поддержку, finance/commission, payment provider, production monitoring и native release verification согласно `TODO.md`.
 
-`pnpm build` — проходит, backend bundle собран в `dist/index.js`.
-
-`pnpm db:push` — применена миграция `drizzle/0011_same_the_professor.sql` с account, token, address и favorite таблицами.
-
-## Обнаруженные проблемы и открытые задачи
-
-Сквозная проверка реальной регистрации и восстановления через письмо невозможна до подключения почтового провайдера. Необходимо добавить production mail transport, шаблоны писем, подписанные ссылки с фиксированным callback URL и отдельные integration tests.
-
-Server-synced favorite API и cabinet присутствуют, но требуется завершить UI-toggle для блюд и выполнить cross-device ownership tests. Требуются authenticated integration tests для адресов, favorites, заказов и отказа в доступе к чужим данным.
-
-Metro Web watcher периодически завершается с известной ошибкой `Cannot read properties of undefined (reading 'addedFiles')` внутри NativeWind/Metro FileMap. TypeScript, lint, tests и backend build при этом проходят; native-device compatibility и стабильный Web preview требуют отдельной проверки после исправления watcher.
-
-См. полный список в [TODO.md](TODO.md).
+Полный список открытых требований находится в [TODO.md](TODO.md).

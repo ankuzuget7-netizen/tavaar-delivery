@@ -18,7 +18,7 @@ Implement real, persisted application behavior for the requested customer flows,
 
 Do not manufacture restaurant claims, customer reviews, star ratings, completed orders, revenues, successful email deliveries or successful payments. An illustrative catalog requires explicit approval, stays visibly labeled as test data, and cannot accept real orders. Without that approval the catalog starts empty and real restaurants enter through the application/approval workflow.
 
-Email/password authentication is the required application-owned identity flow. Email verification and password-reset links must return an honest unavailable state until a mail provider is configured; never simulate a sent email, expose a fixed code or log reset tokens. No phone number is required for registration. Phone is optional order contact data only. No SMS registration, SMS OTP or SMS password recovery is permitted.
+Phone authentication is the required application-owned identity flow. The customer enters a normalized Russian phone number in `+7XXXXXXXXXX` format and chooses Telegram or MAX. A short-lived, single-use deep-link challenge binds the bot chat/user identifier to the pending phone challenge; the server then sends a cryptographically random 4-digit code, stores only its hash, expires it after 5 minutes and enforces a 60-second resend interval. Email/password and SMTP are retired for new customer authentication, while existing email accounts remain readable during migration and phone remains usable as delivery contact data.
 
 Online payment is unavailable until a selected Russian provider, merchant credentials and contractual setup are supplied. Cash/payment on receipt may be available when explicitly allowed by each approved restaurant. Cards are never collected by this app. Provider-dependent refunds cannot be represented as completed until verified by the provider.
 
@@ -29,7 +29,7 @@ Push delivery, signed APK/AAB, physical-device verification, public domains and 
 - `app/(tabs)/`: customer home/catalog, favorites, orders and profile navigation.
 - `app/restaurant/[id].tsx`, `app/dish/[id].tsx`: restaurant and dish detail screens.
 - `app/cart.tsx`, `app/checkout.tsx`, `app/order/[id].tsx`: cart, server quote, checkout and order timeline.
-- `app/auth/`, `app/support/`, `app/partner/`, `app/admin/`: email/password registration, verification, login and recovery; support; restaurant onboarding/authorized cabinet; administrator views.
+- `app/auth/`, `app/support/`, `app/partner/`, `app/admin/`: phone registration/login with Telegram/MAX deep-link confirmation; support; restaurant onboarding/authorized cabinet; administrator views.
 - `components/food/`, `components/ui/`: reusable cards, money labels, quantities, confirmation sheets, forms and feedback states.
 - `hooks/`, `lib/`: query hooks, theme, durable local cart preferences, client validation, native secure token storage and API adapters. Client state never controls financial truth or permissions.
 - `server/domain/`: money arithmetic, quotes, cart rules, order state machine and commission policy.
@@ -56,7 +56,7 @@ Use integer kopecks for all stored amounts. Snapshot prices, commission rate and
 | Support | Tickets, messages, participants and ticket status events. Customer/restaurant access checked on each object. |
 | Notifications | Durable notification inbox and delivery outbox; delivery attempt status, retry metadata and device token ownership. No address/phone in push content. |
 
-Indexes: restaurant/publication status, category/menu availability, orders by owner and restaurant/status, unique provider event IDs, unique user/idempotency key, phone challenge expiry and promo redemption constraints. Foreign keys prevent orphaned business records.
+Indexes: restaurant/publication status, category/menu availability, orders by owner and restaurant/status, unique provider event IDs, unique user/idempotency key, unique normalized phone, provider/chat binding, phone challenge expiry and promo redemption constraints. Foreign keys prevent orphaned business records.
 
 ## 5. Roles and security boundaries
 
@@ -88,11 +88,11 @@ Admin workflows: restaurant application approval/rejection/suspension/blocking, 
 
 ## 7. Integrations
 
-Email authentication: select an approved transactional email provider, then implement its actual API with protected credentials. Verification and reset tokens are generated with cryptographically secure randomness, stored only as hashes, expire quickly, are single-use and are never logged. Registration, login, verification resend, reset request and reset completion require IP/account rate limits and generic responses that do not reveal whether an email exists. If the provider is unavailable or unconfigured, show a clear unavailable state and do not claim that an email was sent.
+Phone authentication: Telegram and MAX bot adapters use protected tokens only on the server. The app creates a short-lived deep-link challenge, the webhook validates the opaque state and binds the provider chat/user identifier, and the adapter sends a 4-digit code only after the user starts the bot. Codes are generated with cryptographically secure randomness, stored only as hashes, expire after 5 minutes, are single-use, never logged, and can be requested only once per 60 seconds. Missing provider credentials or an unavailable bot returns an honest error and never shows a successful delivery. Existing email/password records are retained for migration compatibility but are not the new registration/login UI.
 
 Payments: select ЮKassa or another explicitly approved Russian provider. Read its current official documentation before implementing the adapter. Use provider idempotency, server-to-server status verification, authenticated/validated notifications according to that provider's contract, unique event receipts and reconciliation. Never assume every provider supports a cryptographic webhook signature. Split payments require a separate approved marketplace arrangement, not subtraction on the client.
 
-Notifications: in-app inbox/outbox works independently of a push provider. Connect Expo/FCM or an appropriate approved provider only after native credentials and the data-handling basis are resolved. Telegram/MAX support channels are optional integrations; the app's ticket system does not depend on them.
+Notifications: in-app inbox/outbox works independently of a push provider. Connect Expo/FCM or an appropriate approved provider only after native credentials and the data-handling basis are resolved. Telegram/MAX authentication uses the dedicated bot adapters and webhooks; the app's ticket system does not depend on them.
 
 Legal: policies and agreement/consent drafts must be marked as drafts for counsel. Obtain qualified review of applicable 152-ФЗ, 149-ФЗ, 54-ФЗ and related requirements. Do not assume managed hosting meets Russian localization requirements. Do not send personal data to external services without approved necessity and legal basis.
 
