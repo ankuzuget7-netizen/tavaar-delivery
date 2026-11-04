@@ -71,6 +71,13 @@
       "when": 1793784079968,
       "tag": "0009_small_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1793784909639,
+      "tag": "0010_careless_wither",
+      "breakpoints": true
     }
   ]
 }

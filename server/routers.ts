@@ -3,6 +3,7 @@ import {
   approveRestaurantApplication,
   createRestaurantApplication,
   listPublicRestaurants,
+  searchPublicCatalog,
   listRestaurantApplications,
   createOwnerMenuCategory,
   createOwnerMenuItem,
@@ -117,6 +118,13 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить заведения." });
       }
     }),
+    search: publicProcedure.input(z.object({ query: z.string().trim().max(120) })).query(async ({ input }) => {
+      try {
+        return await searchPublicCatalog(input.query);
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось выполнить поиск каталога." });
+      }
+    }),
     menu: publicProcedure.input(z.object({ restaurantId: z.number().int().positive() })).query(async ({ input }) => {
       try {
         return await getPublicRestaurantMenu(input.restaurantId);
@@ -134,7 +142,7 @@ export const appRouter = router({
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ для отслеживания не найден." }); }
     }),
     create: protectedProcedure
-      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), customerComment: z.string().trim().max(1000).optional() }))
+      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), contactPhone: z.string().trim().min(7).max(32).optional(), customerComment: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createCustomerOrder(ctx.user.id, input);

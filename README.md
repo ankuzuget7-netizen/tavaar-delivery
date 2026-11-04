@@ -6,7 +6,7 @@ Native Expo/React Native foundation for a Russian-language food-delivery platfor
 
 Phase 1 is implemented and verified: customer home shell, Russian empty-catalog experience, navigation tabs for home/orders/help/profile, native brand assets, partner application form, server-side Zod validation, persisted `restaurant_applications` records with `pending` status, a server-authorized admin application-review cabinet, a protected restaurant-owner cabinet, transactional approval that creates an active public restaurant plus an owner membership, owner management for menu categories/items, kopeck-safe prices, item availability and weekly operating hours, the first end-to-end order loop with customer placement, immutable price snapshots, owner status tracking and durable notifications, plus authenticated WebSocket events and Expo push-token registration/delivery. The public catalog is intentionally empty until an actual application is approved.
 
-The 2026-11-04 audit is documented in [AUDIT_REPORT_2026-11-04.md](AUDIT_REPORT_2026-11-04.md). The audit hardening prevents generic admin status updates from bypassing atomic restaurant publication, rejects session tokens bound to another app, fails closed on missing/weak production auth configuration, and adds a unique UUID idempotency key to customer order creation so retries do not create duplicate orders.
+The 2026-11-04 audit is documented in [AUDIT_REPORT_2026-11-04.md](AUDIT_REPORT_2026-11-04.md). The audit hardening prevents generic admin status updates from bypassing atomic restaurant publication, rejects session tokens bound to another app, fails closed on missing/weak production auth configuration, and adds a unique UUID idempotency key to customer order creation so retries do not create duplicate orders. The client catalog phase now includes server-backed restaurant/dish search, active-catalog filtering, restaurant and dish detail routes, persistent local favorites, a persistent one-restaurant cart and exact cross-restaurant replacement confirmation.
 
 This is not a production-ready delivery platform yet. Cart, checkout, orders, email/password authentication, restaurants and menus, operator/admin dashboards, payment/push/email providers, finance ledgers, support tickets, privacy/legal documents, production infrastructure and native release verification remain open in `TODO.md`. The project does not simulate successful payments, email delivery, reviews, orders, ratings or financial metrics. SMS authentication is explicitly out of scope.
 
@@ -39,7 +39,9 @@ The API health endpoint is `GET /api/health`. The current API uses the managed d
 - `/partner/apply` — restaurant onboarding application.
 - `/partner/dashboard` — owner cabinet for menu categories, dishes, integer kopeck prices, availability, weekly operating hours and the entry point to order operations; private operations remain locked until a real authenticated owner/application membership exists.
 - `/partner/orders` — owner order queue, server-validated status transitions and durable notification inbox.
-- `/restaurant/:id` — public approved-restaurant menu and authenticated customer checkout flow.
+- `/restaurant/:id` — public approved-restaurant details, menu categories, active menu items, favorite toggle and cart actions.
+- `/dish/:id` — public approved-menu dish detail, available description/composition, quantity controls and add-to-cart.
+- `/cart` — persistent one-restaurant cart, quantity/removal controls and authenticated checkout with optional contact phone.
 - `/driver/dashboard` — authenticated driver registration, assigned deliveries, delivery status actions and foreground GPS capture.
 - `/order/:id/tracking` — customer delivery status and latest driver location with a link to external maps.
 
@@ -56,6 +58,6 @@ Never put email/payment secrets in the mobile bundle or repository. Configure th
 
 ## Delivery readiness
 
-The current checks pass: TypeScript, Expo lint, Vitest, database migration generation/application, backend bundle build, API health, and a mobile 390×844 visual capture. These checks do not establish native-device compatibility, security guarantees, production readiness, Russian data-hosting compliance, payment/email integration, or RuStore approval.
+The current checks pass: TypeScript, Expo lint, Vitest (27 tests passed, 1 skipped), database migration generation/application, backend bundle build, API health and Expo Web readiness. These checks do not establish native-device compatibility, security guarantees, production readiness, Russian data-hosting compliance, payment/email integration, or RuStore approval. Restaurant/menu photos, modifiers, structured ingredients, promotions, server-synced favorites, full address fields, promo codes and delivery pricing remain open rather than being simulated.
 
 See [plan.md](./plan.md) for architecture/design decisions and [TODO.md](./TODO.md) for the complete acceptance criteria and remaining launch work.

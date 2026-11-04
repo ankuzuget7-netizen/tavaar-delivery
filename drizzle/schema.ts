@@ -123,6 +123,7 @@ export const orders = mysqlTable("orders", {
   fulfillment: mysqlEnum("fulfillment", ["delivery", "pickup"]).default("delivery").notNull(),
   idempotencyKey: varchar("idempotencyKey", { length: 64 }).unique(),
   address: varchar("address", { length: 400 }).notNull(),
+  contactPhone: varchar("contactPhone", { length: 32 }),
   deliveryFeeKopecks: int("deliveryFeeKopecks").default(0).notNull(),
   totalKopecks: int("totalKopecks").notNull(),
   customerComment: text("customerComment"),

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertRestaurantApplication,
@@ -203,6 +203,22 @@ export async function listPublicRestaurants() {
   return db.select().from(restaurants).where(eq(restaurants.status, "active"));
 }
 
+export async function searchPublicCatalog(query: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const normalized = query.trim();
+  if (!normalized) return { restaurants: await listPublicRestaurants(), dishes: [] };
+  const pattern = `%${normalized}%`;
+  const [publicRestaurants, dishes] = await Promise.all([
+    db.select().from(restaurants).where(and(eq(restaurants.status, "active"), or(like(restaurants.name, pattern), like(restaurants.type, pattern), like(restaurants.address, pattern)))).limit(50),
+    db.select({ id: menuItems.id, restaurantId: menuItems.restaurantId, restaurantName: restaurants.name, name: menuItems.name, description: menuItems.description, priceKopecks: menuItems.priceKopecks, prepMinutes: menuItems.prepMinutes })
+      .from(menuItems)
+      .innerJoin(restaurants, eq(restaurants.id, menuItems.restaurantId))
+      .where(and(eq(restaurants.status, "active"), eq(menuItems.available, 1), or(like(menuItems.name, pattern), like(menuItems.description, pattern)))).limit(100),
+  ]);
+  return { restaurants: publicRestaurants, dishes };
+}
+
 async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userId: number) {
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const [membership] = await db
@@ -290,6 +306,7 @@ export async function createCustomerOrder(userId: number, input: {
   fulfillment: "delivery" | "pickup";
   idempotencyKey: string;
   address: string;
+  contactPhone?: string;
   customerComment?: string;
 }) {
   const db = await getDb();
@@ -312,7 +329,7 @@ export async function createCustomerOrder(userId: number, input: {
       return { menuItemId: item.id, nameSnapshot: item.name, priceKopecks: item.priceKopecks, quantity: line.quantity, lineTotalKopecks: item.priceKopecks * line.quantity };
     });
     const totalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
-    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, idempotencyKey: input.idempotencyKey, address: input.address.trim(), customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
+    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, idempotencyKey: input.idempotencyKey, address: input.address.trim(), contactPhone: input.contactPhone?.trim() || null, customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
     const orderId = Number(orderResult[0].insertId);
     await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));
     await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });
