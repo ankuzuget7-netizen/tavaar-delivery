@@ -60,4 +60,10 @@ Never put email/payment secrets in the mobile bundle or repository. Configure th
 
 The current checks pass: TypeScript, Expo lint, Vitest (27 tests passed, 1 skipped), database migration generation/application, backend bundle build, API health and Expo Web readiness. These checks do not establish native-device compatibility, security guarantees, production readiness, Russian data-hosting compliance, payment/email integration, or RuStore approval. Restaurant/menu photos, modifiers, structured ingredients, promotions, server-synced favorites, full address fields, promo codes and delivery pricing remain open rather than being simulated.
 
+## Stage 2 account implementation
+
+The project now contains application-owned email/password routes and screens: registration with consent checks, scrypt password hashing, email verification/reset token tables, login attempt throttling, auth-version session revocation, native SecureStore/cookie sessions, buyer profile/settings, delivery addresses and server-backed favorites. The database migration is `drizzle/0011_same_the_professor.sql`.
+
+No SMTP or transactional email provider is configured. Registration, verification resend and password reset therefore return an explicit unavailable-provider state; the app never pretends that an email was sent. SMS, SMS OTP and phone-number login are not implemented. The detailed status and remaining end-to-end blockers are in [AUTH_STAGE_REPORT_2026-11-04.md](AUTH_STAGE_REPORT_2026-11-04.md).
+
 See [plan.md](./plan.md) for architecture/design decisions and [TODO.md](./TODO.md) for the complete acceptance criteria and remaining launch work.

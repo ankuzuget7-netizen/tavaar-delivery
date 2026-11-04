@@ -14,7 +14,15 @@ export const users = mysqlTable("users", {
   /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
-  email: varchar("email", { length: 320 }),
+  email: varchar("email", { length: 320 }).unique(),
+  passwordHash: text("passwordHash"),
+  emailVerifiedAt: timestamp("emailVerifiedAt"),
+  phone: varchar("phone", { length: 32 }),
+  authVersion: int("authVersion").default(1).notNull(),
+  failedLoginCount: int("failedLoginCount").default(0).notNull(),
+  lockedUntil: timestamp("lockedUntil"),
+  termsAcceptedAt: timestamp("termsAcceptedAt"),
+  privacyAcceptedAt: timestamp("privacyAcceptedAt"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -219,3 +227,51 @@ export const driverLocations = mysqlTable("driver_locations", {
 });
 
 export type DriverLocation = typeof driverLocations.$inferSelect;
+
+export const emailVerificationTokens = mysqlTable("email_verification_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const passwordResetTokens = mysqlTable("password_reset_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const deliveryAddresses = mysqlTable("delivery_addresses", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  city: varchar("city", { length: 120 }).notNull(),
+  street: varchar("street", { length: 160 }).notNull(),
+  house: varchar("house", { length: 32 }).notNull(),
+  entrance: varchar("entrance", { length: 16 }),
+  floor: varchar("floor", { length: 16 }),
+  apartment: varchar("apartment", { length: 16 }),
+  intercom: varchar("intercom", { length: 32 }),
+  comment: varchar("comment", { length: 500 }),
+  isDefault: int("isDefault").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const favoriteRestaurants = mysqlTable("favorite_restaurants", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({ userRestaurant: uniqueIndex("favorite_restaurants_user_restaurant").on(table.userId, table.restaurantId) }));
+
+export const favoriteMenuItems = mysqlTable("favorite_menu_items", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  menuItemId: int("menuItemId").notNull().references(() => menuItems.id),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({ userMenuItem: uniqueIndex("favorite_menu_items_user_menu_item").on(table.userId, table.menuItemId) }));

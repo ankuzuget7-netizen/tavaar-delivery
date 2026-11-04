@@ -27,6 +27,7 @@ type CustomerState = {
   removeFromCart: (menuItemId: number) => void;
   clearCart: () => void;
   toggleFavorite: (restaurantId: number) => void;
+  replaceFavorites: (restaurantIds: number[]) => void;
   isFavorite: (restaurantId: number) => boolean;
 };
 
@@ -81,6 +82,7 @@ export function CustomerStateProvider({ children }: PropsWithChildren) {
     removeFromCart: (menuItemId) => setCart((current) => current.filter((item) => item.menuItemId !== menuItemId)),
     clearCart: () => setCart([]),
     toggleFavorite: (restaurantId) => setFavorites((current) => current.includes(restaurantId) ? current.filter((id) => id !== restaurantId) : [...current, restaurantId]),
+    replaceFavorites: (restaurantIds) => setFavorites(Array.from(new Set(restaurantIds))),
     isFavorite: (restaurantId) => favorites.includes(restaurantId),
   }), [addToCart, cart, favorites, hydrated]);
 

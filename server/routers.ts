@@ -33,12 +33,39 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { sdk } from "./_core/sdk";
+import {
+  authenticateEmail,
+  createAddress,
+  deleteAddress,
+  getAccountProfile,
+  listAddresses,
+  listFavorites,
+  normalizeEmail,
+  registerEmailAccount,
+  requestPasswordReset,
+  resendEmailVerification,
+  resetPassword,
+  setDefaultAddress,
+  toggleFavorite,
+  updateAccountProfile,
+  updateAddress,
+  verifyEmailAddress,
+} from "./account";
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) => ctx.user ? ({ id: ctx.user.id, openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email, emailVerifiedAt: ctx.user.emailVerifiedAt, phone: ctx.user.phone, role: ctx.user.role, loginMethod: ctx.user.loginMethod, lastSignedIn: ctx.user.lastSignedIn }) : null),
+    register: publicProcedure.input(z.object({ name: z.string().trim().min(2).max(120), email: z.string().email().max(320), password: z.string().min(10).max(128), confirmPassword: z.string().min(10).max(128), acceptTerms: z.literal(true), acceptPrivacy: z.literal(true) }).refine((input) => input.password === input.confirmPassword, { message: "Пароли не совпадают", path: ["confirmPassword"] })).mutation(async ({ input }) => {
+      try { return await registerEmailAccount(input); } catch (error) { const message = error instanceof Error ? error.message : ""; if (message === "EMAIL_ALREADY_EXISTS") throw new TRPCError({ code: "CONFLICT", message: "Пользователь с таким email уже зарегистрирован." }); if (message === "WEAK_PASSWORD") throw new TRPCError({ code: "BAD_REQUEST", message: "Пароль: минимум 10 символов, буквы разных регистров и цифра." }); if (message === "CONSENTS_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Нужно принять пользовательское соглашение и политику конфиденциальности." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать аккаунт." }); }
+    }),
+    verifyEmail: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).mutation(async ({ input }) => { try { return await verifyEmailAddress(input.token); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Ссылка подтверждения недействительна или истекла." }); } }),
+    resendVerification: publicProcedure.input(z.object({ email: z.string().email().max(320) })).mutation(async ({ input }) => { try { return await resendEmailVerification(normalizeEmail(input.email)); } catch (error) { if (error instanceof Error && error.message === "RESEND_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось обработать запрос." }); } }),
+    login: publicProcedure.input(z.object({ email: z.string().email().max(320), password: z.string().min(1).max(128) })).mutation(async ({ input, ctx }) => { try { const user = await authenticateEmail(input.email, input.password); const token = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion }); ctx.res.cookie(getSessionCookieName(ctx.req), token, { ...getSessionCookieOptions(ctx.req), maxAge: 365 * 24 * 60 * 60 * 1000 }); return { success: true, sessionToken: token, user: { id: user.id, name: user.name, email: user.email, emailVerifiedAt: user.emailVerifiedAt } }; } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "EMAIL_NOT_VERIFIED") throw new TRPCError({ code: "FORBIDDEN", message: "Сначала подтвердите email." }); if (code === "LOGIN_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Попробуйте позже." }); throw new TRPCError({ code: "UNAUTHORIZED", message: "Неверный email или пароль." }); } }),
+    requestPasswordReset: publicProcedure.input(z.object({ email: z.string().email().max(320) })).mutation(async ({ input }) => { try { return await requestPasswordReset(input.email); } catch { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось обработать запрос." }); } }),
+    resetPassword: publicProcedure.input(z.object({ token: z.string().min(20).max(200), password: z.string().min(10).max(128), confirmPassword: z.string().min(10).max(128) }).refine((input) => input.password === input.confirmPassword, { message: "Пароли не совпадают", path: ["confirmPassword"] })).mutation(async ({ input }) => { try { return await resetPassword(input.token, input.password); } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "WEAK_PASSWORD") throw new TRPCError({ code: "BAD_REQUEST", message: "Пароль: минимум 10 символов, буквы разных регистров и цифра." }); throw new TRPCError({ code: "BAD_REQUEST", message: "Ссылка восстановления недействительна или истекла." }); } }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(getSessionCookieName(ctx.req), {
@@ -49,6 +76,19 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+    profile: protectedProcedure.query(({ ctx }) => getAccountProfile(ctx.user.id)),
+    updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().max(32).optional() })).mutation(({ ctx, input }) => updateAccountProfile(ctx.user.id, input)),
+    addresses: router({
+      list: protectedProcedure.query(({ ctx }) => listAddresses(ctx.user.id)),
+      create: protectedProcedure.input(z.object({ city: z.string().trim().min(2).max(120), street: z.string().trim().min(2).max(160), house: z.string().trim().min(1).max(32), entrance: z.string().trim().max(16).optional(), floor: z.string().trim().max(16).optional(), apartment: z.string().trim().max(16).optional(), intercom: z.string().trim().max(32).optional(), comment: z.string().trim().max(500).optional(), isDefault: z.boolean().optional() })).mutation(({ ctx, input }) => createAddress(ctx.user.id, input)),
+      update: protectedProcedure.input(z.object({ id: z.number().int().positive(), city: z.string().trim().min(2).max(120), street: z.string().trim().min(2).max(160), house: z.string().trim().min(1).max(32), entrance: z.string().trim().max(16).optional(), floor: z.string().trim().max(16).optional(), apartment: z.string().trim().max(16).optional(), intercom: z.string().trim().max(32).optional(), comment: z.string().trim().max(500).optional(), isDefault: z.boolean().optional() })).mutation(({ ctx, input }) => { const { id, ...address } = input; return updateAddress(ctx.user.id, id, address); }),
+      remove: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => deleteAddress(ctx.user.id, input.id)),
+      setDefault: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ ctx, input }) => setDefaultAddress(ctx.user.id, input.id)),
+    }),
+  }),
+  favorites: router({
+    list: protectedProcedure.query(({ ctx }) => listFavorites(ctx.user.id)),
+    toggle: protectedProcedure.input(z.object({ type: z.enum(["restaurant", "dish"]), id: z.number().int().positive(), favorite: z.boolean() })).mutation(({ ctx, input }) => toggleFavorite(ctx.user.id, input.type, input.id, input.favorite)),
   }),
 
   restaurantApplications: router({
