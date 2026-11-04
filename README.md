@@ -38,8 +38,12 @@ The API health endpoint is `GET /api/health`. The current API uses the managed d
 - `/partner/dashboard` — owner cabinet for menu categories, dishes, integer kopeck prices, availability, weekly operating hours and the entry point to order operations; private operations remain locked until a real authenticated owner/application membership exists.
 - `/partner/orders` — owner order queue, server-validated status transitions and durable notification inbox.
 - `/restaurant/:id` — public approved-restaurant menu and authenticated customer checkout flow.
+- `/driver/dashboard` — authenticated driver registration, assigned deliveries, delivery status actions and foreground GPS capture.
+- `/order/:id/tracking` — customer delivery status and latest driver location with a link to external maps.
 
 The API WebSocket endpoint is `/api/ws`. It authenticates the session cookie or connection token, scopes connections by user ID and emits `order.created` to restaurant owners and `order.status_changed` to customers only after the corresponding database transaction commits. The app root invalidates durable tRPC queries when these events arrive, so a dropped socket cannot become the source of truth. Native builds request Expo notification permission, register the Expo push token in `push_tokens`, and the server sends order events through Expo's push endpoint; Web Preview skips native registration but still uses WebSockets where authenticated cookies are available.
+
+Delivery adds `delivery_drivers`, `order_driver_assignments` and append-only `driver_locations`. Owners can assign an available registered driver only after an order is ready. Drivers can accept, pick up and complete the assignment. While an assignment is active, the native driver screen requests foreground location permission and sends a coordinate at most every 10 seconds or 25 meters; the server verifies the assignment before persisting it and broadcasts `driver.location_updated` only to the customer and restaurant members for that order. The customer sees the latest coordinates and timestamp and can open them in an external map. Background location, geofencing, route ETA, map tiles and automatic driver identity verification remain open.
 - `/admin/applications` — admin application review; the screen requires the server-side `admin` role and cannot be unlocked by a frontend parameter.
 
 ## Data and security notes

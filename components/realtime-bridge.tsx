@@ -32,6 +32,7 @@ export function RealtimeBridge() {
 
     const refreshOrderQueries = () => {
       void utils.customerOrders.list.invalidate();
+      void utils.customerOrders.tracking.invalidate();
       void utils.restaurantOwner.orders.invalidate();
       void utils.restaurantOwner.notifications.invalidate();
     };

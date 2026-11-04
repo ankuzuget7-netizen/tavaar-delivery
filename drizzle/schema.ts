@@ -180,3 +180,40 @@ export const pushTokens = mysqlTable("push_tokens", {
 });
 
 export type PushToken = typeof pushTokens.$inferSelect;
+
+export const deliveryDrivers = mysqlTable("delivery_drivers", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id).unique(),
+  displayName: varchar("displayName", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  vehicle: varchar("vehicle", { length: 120 }),
+  status: mysqlEnum("status", ["offline", "available", "busy", "suspended"]).default("available").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type DeliveryDriver = typeof deliveryDrivers.$inferSelect;
+
+export const orderDriverAssignments = mysqlTable("order_driver_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull().references(() => orders.id).unique(),
+  driverId: int("driverId").notNull().references(() => deliveryDrivers.id),
+  assignedByUserId: int("assignedByUserId").notNull().references(() => users.id),
+  status: mysqlEnum("status", ["assigned", "accepted", "picked_up", "delivered", "cancelled"]).default("assigned").notNull(),
+  assignedAt: timestamp("assignedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type OrderDriverAssignment = typeof orderDriverAssignments.$inferSelect;
+
+export const driverLocations = mysqlTable("driver_locations", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull().references(() => orders.id),
+  driverId: int("driverId").notNull().references(() => deliveryDrivers.id),
+  latitudeE6: int("latitudeE6").notNull(),
+  longitudeE6: int("longitudeE6").notNull(),
+  accuracyCm: int("accuracyCm"),
+  recordedAt: timestamp("recordedAt").defaultNow().notNull(),
+});
+
+export type DriverLocation = typeof driverLocations.$inferSelect;

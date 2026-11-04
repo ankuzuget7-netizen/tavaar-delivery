@@ -15,6 +15,14 @@ import {
   markOwnerNotificationRead,
   registerPushToken,
   deactivatePushToken,
+  registerDeliveryDriver,
+  getDriverProfile,
+  listOwnerDrivers,
+  assignDriverToOrder,
+  listDriverAssignments,
+  updateDriverAssignmentStatus,
+  updateDriverLocation,
+  getCustomerOrderTracking,
   setOwnerMenuItemAvailability,
   updateOwnerOrderStatus,
   updateRestaurantApplicationStatus,
@@ -121,6 +129,10 @@ export const appRouter = router({
 
   customerOrders: router({
     list: protectedProcedure.query(async ({ ctx }) => listCustomerOrders(ctx.user.id)),
+    tracking: protectedProcedure.input(z.object({ orderId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      try { return await getCustomerOrderTracking(ctx.user.id, input.orderId); }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ для отслеживания не найден." }); }
+    }),
     create: protectedProcedure
       .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), address: z.string().trim().min(5).max(400), customerComment: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
@@ -145,6 +157,26 @@ export const appRouter = router({
     }),
   }),
 
+  driver: router({
+    profile: protectedProcedure.query(async ({ ctx }) => {
+      try { return await getDriverProfile(ctx.user.id); }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "Профиль курьера не найден." }); }
+    }),
+    register: protectedProcedure.input(z.object({ displayName: z.string().trim().min(2).max(120), phone: z.string().trim().min(7).max(32), vehicle: z.string().trim().max(120).optional() })).mutation(({ ctx, input }) => registerDeliveryDriver(ctx.user.id, input)),
+    assignments: protectedProcedure.query(async ({ ctx }) => {
+      try { return await listDriverAssignments(ctx.user.id); }
+      catch { throw new TRPCError({ code: "FORBIDDEN", message: "Профиль курьера не найден." }); }
+    }),
+    updateStatus: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), status: z.enum(["accepted", "picked_up", "delivered"]) })).mutation(async ({ ctx, input }) => {
+      try { return await updateDriverAssignmentStatus(ctx.user.id, input.orderId, input.status); }
+      catch (error) { if (error instanceof Error && error.message === "INVALID_DRIVER_TRANSITION") throw new TRPCError({ code: "CONFLICT", message: "Этот статус курьера сейчас недоступен." }); throw new TRPCError({ code: "FORBIDDEN", message: "Заказ не назначен этому курьеру." }); }
+    }),
+    location: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), latitudeE6: z.number().int().min(-90000000).max(90000000), longitudeE6: z.number().int().min(-180000000).max(180000000), accuracyCm: z.number().int().min(0).max(100000).optional() })).mutation(async ({ ctx, input }) => {
+      try { return await updateDriverLocation(ctx.user.id, input); }
+      catch { throw new TRPCError({ code: "FORBIDDEN", message: "Нет активной доставки для передачи координат." }); }
+    }),
+  }),
+
   restaurantOwner: router({
     dashboard: protectedProcedure.query(async ({ ctx }) => {
       try {
@@ -155,6 +187,14 @@ export const appRouter = router({
         }
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить кабинет заведения." });
       }
+    }),
+    drivers: protectedProcedure.query(async ({ ctx }) => {
+      try { return await listOwnerDrivers(ctx.user.id); }
+      catch { throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к курьерам заведения." }); }
+    }),
+    assignDriver: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), driverId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      try { return await assignDriverToOrder(ctx.user.id, input.orderId, input.driverId); }
+      catch (error) { if (error instanceof Error && error.message === "ORDER_NOT_READY") throw new TRPCError({ code: "CONFLICT", message: "Курьера можно назначить только на готовый заказ." }); if (error instanceof Error && error.message === "DRIVER_NOT_AVAILABLE") throw new TRPCError({ code: "BAD_REQUEST", message: "Курьер недоступен." }); if (error instanceof Error && error.message === "DRIVER_ALREADY_ASSIGNED") throw new TRPCError({ code: "CONFLICT", message: "К этому заказу уже привязан курьер." }); throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заказу или заведению." }); }
     }),
     orders: protectedProcedure.query(async ({ ctx }) => {
       try { return await listOwnerOrders(ctx.user.id); }

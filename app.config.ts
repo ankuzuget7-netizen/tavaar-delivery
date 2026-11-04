@@ -109,6 +109,12 @@ const config: ExpoConfig = {
     "expo-router",
     "expo-notifications",
     [
+      "expo-location",
+      {
+        locationWhenInUsePermission: "Разрешите приложению получать геопозицию курьера во время доставки.",
+      },
+    ],
+    [
       "expo-audio",
       {
         microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",
