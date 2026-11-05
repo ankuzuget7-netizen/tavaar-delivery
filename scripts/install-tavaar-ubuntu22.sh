@@ -17,6 +17,7 @@ SYSTEMD_UNIT="tavaar-api.service"
 NGINX_SITE="/etc/nginx/sites-available/${DOMAIN}"
 SOURCE_DIR="$(pwd)"
 REPO_URL=""
+BUNDLE_URL=""
 SKIP_WEBHOOKS="false"
 LE_EMAIL=""
 
@@ -28,6 +29,7 @@ Usage:
 Options:
   --source-dir DIR   Project directory to deploy (default: current directory)
   --repo URL         Clone the project into /opt/tavaar before deployment
+  --bundle-url URL   Download a tar.gz project bundle before deployment
   --domain NAME      Domain name (default: tavaar.online)
   --email EMAIL      Let's Encrypt notification email
   --skip-webhooks    Configure the app but do not register Telegram/MAX webhooks
@@ -44,6 +46,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --source-dir) SOURCE_DIR="${2:?Missing value for --source-dir}"; shift 2 ;;
     --repo) REPO_URL="${2:?Missing value for --repo}"; shift 2 ;;
+    --bundle-url) BUNDLE_URL="${2:?Missing value for --bundle-url}"; shift 2 ;;
     --domain) DOMAIN="${2:?Missing value for --domain}"; WWW_DOMAIN="www.${DOMAIN}"; shift 2 ;;
     --email) LE_EMAIL="${2:?Missing value for --email}"; shift 2 ;;
     --skip-webhooks) SKIP_WEBHOOKS="true"; shift ;;
@@ -79,6 +82,15 @@ if [[ -n "$REPO_URL" ]]; then
   log "Cloning/updating source repository"
   rm -rf /tmp/tavaar-source
   git clone --depth 1 "$REPO_URL" /tmp/tavaar-source
+  SOURCE_DIR="/tmp/tavaar-source"
+fi
+
+if [[ -n "$BUNDLE_URL" ]]; then
+  log "Downloading project bundle"
+  rm -rf /tmp/tavaar-source
+  mkdir -p /tmp/tavaar-source
+  curl -fL --retry 3 --connect-timeout 15 --max-time 300 "$BUNDLE_URL" -o /tmp/tavaar-project.tar.gz
+  tar -xzf /tmp/tavaar-project.tar.gz -C /tmp/tavaar-source
   SOURCE_DIR="/tmp/tavaar-source"
 fi
 
