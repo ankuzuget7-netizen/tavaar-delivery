@@ -49,6 +49,7 @@ export async function requestPhoneChallenge(input: { phone: string; channel: Pho
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const phone = normalizePhone(input.phone);
+  if (input.purpose === "register" && input.channel !== "max") throw new Error("REGISTRATION_MAX_ONLY");
   if (input.purpose === "change_phone" && !input.userId) throw new Error("AUTH_REQUIRED");
   const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
   if ((input.purpose === "register" || input.purpose === "change_phone") && existing) throw new Error("PHONE_ALREADY_REGISTERED");
