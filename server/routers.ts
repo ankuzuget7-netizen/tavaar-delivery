@@ -247,7 +247,7 @@ export const appRouter = router({
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ для отслеживания не найден." }); }
     }),
     create: protectedProcedure
-      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), contactPhone: z.string().trim().min(7).max(32).optional(), customerComment: z.string().trim().max(1000).optional() }))
+      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), paymentMethod: z.literal("cash"), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), contactPhone: z.string().trim().min(7).max(32).optional(), customerComment: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createCustomerOrder(ctx.user.id, input);

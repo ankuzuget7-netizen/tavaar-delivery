@@ -304,6 +304,7 @@ export async function createCustomerOrder(userId: number, input: {
   restaurantId: number;
   items: { menuItemId: number; quantity: number }[];
   fulfillment: "delivery" | "pickup";
+  paymentMethod: "cash";
   idempotencyKey: string;
   address: string;
   contactPhone?: string;
@@ -329,7 +330,7 @@ export async function createCustomerOrder(userId: number, input: {
       return { menuItemId: item.id, nameSnapshot: item.name, priceKopecks: item.priceKopecks, quantity: line.quantity, lineTotalKopecks: item.priceKopecks * line.quantity };
     });
     const totalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
-    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, idempotencyKey: input.idempotencyKey, address: input.address.trim(), contactPhone: input.contactPhone?.trim() || null, customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
+    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, address: input.address.trim(), contactPhone: input.contactPhone?.trim() || null, customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
     const orderId = Number(orderResult[0].insertId);
     await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));
     await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });

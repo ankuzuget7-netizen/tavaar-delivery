@@ -130,6 +130,7 @@ export const orders = mysqlTable("orders", {
   restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
   status: mysqlEnum("status", ["placed", "restaurant_confirmed", "preparing", "ready", "courier_assigned", "handed_to_courier", "in_transit", "delivered", "completed", "cancelled", "restaurant_rejected", "payment_error", "refunded", "complaint"]).default("placed").notNull(),
   fulfillment: mysqlEnum("fulfillment", ["delivery", "pickup"]).default("delivery").notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ["cash"]).default("cash").notNull(),
   idempotencyKey: varchar("idempotencyKey", { length: 64 }).unique(),
   address: varchar("address", { length: 400 }).notNull(),
   contactPhone: varchar("contactPhone", { length: 32 }),
