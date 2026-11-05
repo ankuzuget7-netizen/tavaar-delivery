@@ -56,7 +56,7 @@ async function maxRequest<T>(urlPath: string, init: { method?: string; body?: st
       });
     });
     request.on("timeout", () => request.destroy(new Error("MAX_TIMEOUT")));
-    request.on("error", reject);
+    request.on("error", (error) => reject(error instanceof Error && error.message === "MAX_TIMEOUT" ? error : new Error("MAX_PROVIDER_UNAVAILABLE")));
     if (payload) request.write(payload);
     request.end();
   });

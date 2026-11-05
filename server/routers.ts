@@ -77,7 +77,7 @@ export const appRouter = router({
         if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован. Войдите через подтверждение кода." });
         if (code === "CONSENTS_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Нужно принять пользовательское соглашение и политику конфиденциальности." });
         if (code === "CHALLENGE_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." });
-        if (["BOT_NOT_CONFIGURED", "BOT_AUTH_FAILED", "BOT_PROVIDER_ERROR", "BOT_USERNAME_UNAVAILABLE", "MAX_TLS_CA_MISSING"].includes(code)) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Выбранный бот временно недоступен. Попробуйте другой способ." });
+        if (["BOT_NOT_CONFIGURED", "BOT_AUTH_FAILED", "BOT_PROVIDER_ERROR", "BOT_USERNAME_UNAVAILABLE", "MAX_TLS_CA_MISSING", "MAX_TIMEOUT", "MAX_PROVIDER_UNAVAILABLE"].includes(code)) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Бот MAX временно недоступен. Повторите попытку через минуту." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось начать подтверждение номера." });
       }
     }),
