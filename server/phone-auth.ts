@@ -1,5 +1,6 @@
 import { createHash, randomInt, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { phoneAuthChallenges, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { createBotDeepLink, hashBotState, type PhoneChannel, sendBotCode } from "./_core/bots";
@@ -10,7 +11,7 @@ const RESEND_INTERVAL_MS = 60 * 1000;
 const MAX_CODE_ATTEMPTS = 5;
 const PHONE_RE = /^\+7\d{10}$/;
 
-export type PhonePurpose = "register" | "login";
+export type PhonePurpose = "register" | "login" | "change_phone";
 
 export function normalizePhone(value: string) {
   const compact = value.replace(/[\s()-]/g, "");
@@ -44,12 +45,13 @@ function publicChallenge(row: typeof phoneAuthChallenges.$inferSelect, deepLink?
   };
 }
 
-export async function requestPhoneChallenge(input: { phone: string; channel: PhoneChannel; purpose: PhonePurpose; name?: string; acceptTerms?: boolean; acceptPrivacy?: boolean }) {
+export async function requestPhoneChallenge(input: { phone: string; channel: PhoneChannel; purpose: PhonePurpose; userId?: number; name?: string; acceptTerms?: boolean; acceptPrivacy?: boolean }) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const phone = normalizePhone(input.phone);
+  if (input.purpose === "change_phone" && !input.userId) throw new Error("AUTH_REQUIRED");
   const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
-  if (input.purpose === "register" && existing) throw new Error("PHONE_ALREADY_REGISTERED");
+  if ((input.purpose === "register" || input.purpose === "change_phone") && existing) throw new Error("PHONE_ALREADY_REGISTERED");
   if (input.purpose === "register" && (!input.name?.trim() || !input.acceptTerms || !input.acceptPrivacy)) throw new Error("CONSENTS_REQUIRED");
   const [recent] = await db.select({ id: phoneAuthChallenges.id }).from(phoneAuthChallenges).where(and(eq(phoneAuthChallenges.phone, phone), eq(phoneAuthChallenges.channel, input.channel), eq(phoneAuthChallenges.purpose, input.purpose), isNull(phoneAuthChallenges.consumedAt), gt(phoneAuthChallenges.createdAt, new Date(Date.now() - RESEND_INTERVAL_MS)))).limit(1);
   if (recent) throw new Error("CHALLENGE_TOO_SOON");
@@ -57,6 +59,7 @@ export async function requestPhoneChallenge(input: { phone: string; channel: Pho
   const state = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
   const inserted = await db.insert(phoneAuthChallenges).values({
+    userId: input.userId || null,
     phone,
     channel: input.channel,
     purpose: input.purpose,
@@ -115,7 +118,7 @@ export async function deliverBotCode(result: { challengeId: number; channel: Pho
   return result;
 }
 
-export async function verifyPhoneChallenge(challengeId: number, code: string) {
+export async function verifyPhoneChallenge(challengeId: number, code: string, options?: { purpose?: PhonePurpose; userId?: number }) {
   if (!/^\d{4}$/.test(code)) throw new Error("INVALID_CODE");
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
@@ -126,6 +129,8 @@ export async function verifyPhoneChallenge(challengeId: number, code: string) {
     await db.update(phoneAuthChallenges).set({ attempts: row.attempts + 1 }).where(eq(phoneAuthChallenges.id, row.id));
     throw new Error(row.attempts + 1 >= MAX_CODE_ATTEMPTS ? "CODE_RATE_LIMITED" : "INVALID_CODE");
   }
+  if (options?.purpose && row.purpose !== options.purpose) throw new Error("CHALLENGE_NOT_ALLOWED");
+  if (options?.userId && row.userId !== options.userId) throw new Error("CHALLENGE_NOT_ALLOWED");
   const [existing] = await db.select().from(users).where(eq(users.phone, row.phone)).limit(1);
   let user = existing;
   await db.transaction(async (tx) => {
@@ -136,6 +141,14 @@ export async function verifyPhoneChallenge(challengeId: number, code: string) {
       const userId = Number(inserted[0].insertId);
       const [created] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
       user = created;
+    } else if (row.purpose === "change_phone") {
+      if (!row.userId || !options?.userId || row.userId !== options.userId) throw new Error("CHALLENGE_NOT_ALLOWED");
+      const [owner] = await tx.select().from(users).where(eq(users.id, row.userId)).limit(1);
+      if (!owner || !owner.phoneVerifiedAt) throw new Error("PHONE_NOT_VERIFIED");
+      if (existing) throw new Error("PHONE_ALREADY_REGISTERED");
+      await tx.update(users).set({ phone: row.phone, phoneVerifiedAt: new Date(), loginMethod: row.channel, authVersion: sql`${users.authVersion} + 1` }).where(eq(users.id, row.userId));
+      const [updated] = await tx.select().from(users).where(eq(users.id, row.userId)).limit(1);
+      user = updated;
     } else {
       if (!existing || !existing.phoneVerifiedAt) throw new Error("PHONE_NOT_VERIFIED");
       await tx.update(users).set({ failedLoginCount: 0, lockedUntil: null, lastSignedIn: new Date() }).where(eq(users.id, existing.id));

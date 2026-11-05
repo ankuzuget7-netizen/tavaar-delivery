@@ -249,9 +249,10 @@ export const passwordResetTokens = mysqlTable("password_reset_tokens", {
 
 export const phoneAuthChallenges = mysqlTable("phone_auth_challenges", {
   id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
   phone: varchar("phone", { length: 16 }).notNull(),
   channel: mysqlEnum("channel", ["telegram", "max"]).notNull(),
-  purpose: mysqlEnum("purpose", ["register", "login"]).notNull(),
+  purpose: mysqlEnum("purpose", ["register", "login", "change_phone"]).notNull(),
   stateHash: varchar("stateHash", { length: 64 }).notNull().unique(),
   name: varchar("name", { length: 120 }),
   termsAcceptedAt: timestamp("termsAcceptedAt"),

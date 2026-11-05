@@ -116,6 +116,32 @@ export const appRouter = router({
       } as const;
     }),
     profile: protectedProcedure.query(({ ctx }) => getAccountProfile(ctx.user.id)),
+    requestPhoneChange: protectedProcedure.input(z.object({ phone: z.string().trim().min(12).max(16), channel: z.enum(["telegram", "max"]) })).mutation(async ({ ctx, input }) => {
+      try {
+        return await requestPhoneChallenge({ ...input, purpose: "change_phone", userId: ctx.user.id });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "INVALID_PHONE") throw new TRPCError({ code: "BAD_REQUEST", message: "Введите номер в формате +7XXXXXXXXXX." });
+        if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован в другом аккаунте." });
+        if (code === "CHALLENGE_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." });
+        if (["BOT_NOT_CONFIGURED", "BOT_AUTH_FAILED", "BOT_PROVIDER_ERROR", "BOT_USERNAME_UNAVAILABLE", "MAX_TLS_CA_MISSING"].includes(code)) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Выбранный бот временно недоступен. Попробуйте другой способ." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось начать смену номера." });
+      }
+    }),
+    verifyPhoneChange: protectedProcedure.input(z.object({ challengeId: z.number().int().positive(), code: z.string().regex(/^\d{4}$/) })).mutation(async ({ ctx, input }) => {
+      try {
+        const user = await verifyPhoneChallenge(input.challengeId, input.code, { purpose: "change_phone", userId: ctx.user.id });
+        return await createPhoneSession(ctx, user);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "INVALID_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Неверный код подтверждения." });
+        if (code === "CODE_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Запросите новый код позже." });
+        if (["CODE_EXPIRED", "CHALLENGE_EXPIRED"].includes(code)) throw new TRPCError({ code: "BAD_REQUEST", message: "Код истёк. Начните смену номера заново." });
+        if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован в другом аккаунте." });
+        if (code === "CHALLENGE_NOT_ALLOWED" || code === "PHONE_NOT_VERIFIED") throw new TRPCError({ code: "FORBIDDEN", message: "Сеанс подтверждения недействителен. Начните заново." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить номер." });
+      }
+    }),
     updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().max(32).optional() })).mutation(async ({ ctx, input }) => { try { return await updateAccountProfile(ctx.user.id, input); } catch (error) { if (error instanceof Error && error.message === "PHONE_CHANGE_REQUIRES_CONFIRMATION") throw new TRPCError({ code: "CONFLICT", message: "Для смены подтверждённого номера нужно пройти новое подтверждение через Telegram или MAX." }); throw error; } }),
     addresses: router({
       list: protectedProcedure.query(({ ctx }) => listAddresses(ctx.user.id)),
