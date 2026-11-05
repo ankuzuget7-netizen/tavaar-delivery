@@ -13,7 +13,7 @@ export default function LoginScreen() {
   const [channel, setChannel] = useState<Channel>("telegram");
   const challenge = trpc.auth.requestPhoneChallenge.useMutation({ onSuccess: (data) => router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone } } as never) });
   const formattedPhone = formatPhone(phone);
-  const valid = /^\+7\d{10}$/.test(formattedPhone);
+  const valid = isCompleteRussianPhone(formattedPhone);
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>
     <Text style={[styles.eyebrow, { color: colors.primary }]}>АККАУНТ</Text>
     <Text style={[styles.title, { color: colors.foreground }]}>Войти по телефону</Text>
@@ -33,6 +33,10 @@ export function formatPhone(value: string) {
   const rest = normalized.slice(1);
   const parts = [rest.slice(0, 3), rest.slice(3, 6), rest.slice(6, 8), rest.slice(8, 10)].filter(Boolean);
   return `+7${parts[0] ? ` ${parts[0]}` : ""}${parts[1] ? ` ${parts[1]}` : ""}${parts[2] ? `-${parts[2]}` : ""}${parts[3] ? `-${parts[3]}` : ""}`;
+}
+
+export function isCompleteRussianPhone(value: string) {
+  return /^7\d{10}$/.test(value.replace(/\D/g, ""));
 }
 
 function Field({ label, colors, ...props }: { label: string; colors: ReturnType<typeof useColors> } & React.ComponentProps<typeof TextInput>) { return <View style={styles.field}><Text style={[styles.label, { color: colors.foreground }]}>{label}</Text><TextInput {...props} placeholderTextColor={colors.muted} style={[styles.input, { color: colors.foreground, backgroundColor: colors.surface, borderColor: colors.border }]} /></View>; }

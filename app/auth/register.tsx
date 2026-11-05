@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
-import { formatPhone } from "./login";
+import { formatPhone, isCompleteRussianPhone } from "./login";
 
 type Channel = "telegram" | "max";
 
@@ -17,7 +17,7 @@ export default function RegisterScreen() {
   const [privacy, setPrivacy] = useState(false);
   const challenge = trpc.auth.requestPhoneChallenge.useMutation({ onSuccess: (data) => router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone } } as never) });
   const formattedPhone = formatPhone(phone);
-  const valid = name.trim().length >= 2 && /^\+7\d{10}$/.test(formattedPhone) && terms && privacy;
+  const valid = name.trim().length >= 2 && isCompleteRussianPhone(formattedPhone) && terms && privacy;
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>
     <Text style={[styles.eyebrow, { color: colors.primary }]}>НОВЫЙ АККАУНТ</Text>
     <Text style={[styles.title, { color: colors.foreground }]}>Регистрация</Text>
