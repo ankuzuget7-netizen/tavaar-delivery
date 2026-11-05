@@ -27,22 +27,30 @@ export const OWNER_OPEN_ID = env.ownerId;
 export const OWNER_NAME = env.ownerName;
 export const API_BASE_URL = env.apiBaseUrl;
 
+function isLocalApiBaseUrl(value: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(value.replace(/\/$/, ""));
+}
+
 /**
  * Get the API base URL, deriving from current hostname if not set.
  * Metro runs on 8081, API server runs on 3000.
  * URL pattern: https://PORT-sandboxid.region.domain
  */
 export function getApiBaseUrl(): string {
-  // If API_BASE_URL is set, use it
-  if (API_BASE_URL) {
+  const runningOnWeb = ReactNative.Platform.OS === "web" && typeof window !== "undefined" && window.location;
+  const externalWebHost = runningOnWeb && !/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(window.location.hostname);
+
+  // A local API URL is valid for native/local development, but never from an external Web Preview.
+  if (API_BASE_URL && !(externalWebHost && isLocalApiBaseUrl(API_BASE_URL))) {
     return API_BASE_URL.replace(/\/$/, "");
   }
 
-  // On web, derive from current hostname by replacing port 8081 with 3000
-  if (ReactNative.Platform.OS === "web" && typeof window !== "undefined" && window.location) {
+  // On Web Preview, derive the API origin from the current proxy hostname.
+  // Local Metro uses 8081-..., while managed Preview uses 8328-...;
+  // both map to the public API endpoint on 3000-....
+  if (runningOnWeb) {
     const { protocol, hostname } = window.location;
-    // Pattern: 8081-sandboxid.region.domain -> 3000-sandboxid.region.domain
-    const apiHostname = hostname.replace(/^8081-/, "3000-");
+    const apiHostname = hostname.replace(/^(?:8081|8328)-/, "3000-");
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
