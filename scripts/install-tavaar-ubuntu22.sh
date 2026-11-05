@@ -119,12 +119,20 @@ log "Installing Node.js 20+ and pnpm"
 if ! command -v node >/dev/null 2>&1; then
   apt-get install -y nodejs npm
 fi
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.split(\".\")[0]')" -lt 20 ]]; then
+node_major_version() {
+  node --version | cut -d. -f1 | tr -d 'v'
+}
+node_major=0
+if command -v node >/dev/null 2>&1; then
+  node_major="$(node_major_version)"
+fi
+if ! [[ "$node_major" =~ ^[0-9]+$ ]] || (( node_major < 20 )); then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
 fi
 command -v node >/dev/null 2>&1 || die "Node.js installation failed"
-[[ "$(node -p 'process.versions.node.split(\".\")[0]')" -ge 20 ]] \
+node_major="$(node_major_version)"
+[[ "$node_major" =~ ^[0-9]+$ ]] && (( node_major >= 20 )) \
   || die "Node.js 20 or newer is required; detected $(node --version)"
 if command -v corepack >/dev/null 2>&1; then
   corepack enable
