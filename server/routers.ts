@@ -12,7 +12,7 @@ import {
   getPublicRestaurantMenu,
   listCustomerOrders,
   listOwnerNotifications,
-  listOwnerOrders,
+  listOwnerOrders as listRestaurantOwnerOrders,
   markOwnerNotificationRead,
   registerPushToken,
   deactivatePushToken,
@@ -30,7 +30,7 @@ import {
   upsertOwnerHours,
 } from "./db";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router, superAdminProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { sdk } from "./_core/sdk";
@@ -55,6 +55,7 @@ import {
 } from "./account";
 import { getPhoneChallengeStatus, requestPhoneChallenge, verifyPhoneChallenge } from "./phone-auth";
 import type { PhoneChannel } from "./_core/bots";
+import { getOwnerOverview, listOwnerAuditLogs, listOwnerOrders, listOwnerRestaurants, listOwnerUsers, writeAuditLog } from "./owner-admin";
 
 async function createPhoneSession(ctx: Pick<TrpcContext, "req" | "res">, user: any) {
   const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion });
@@ -65,6 +66,17 @@ async function createPhoneSession(ctx: Pick<TrpcContext, "req" | "res">, user: a
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
+  ownerAdmin: router({
+    overview: superAdminProcedure.query(() => getOwnerOverview()),
+    applications: superAdminProcedure.query(() => listRestaurantApplications()),
+    approveApplication: superAdminProcedure.input(z.object({ applicationId: z.number().int().positive(), ownerUserId: z.number().int().positive().optional() })).mutation(async ({ ctx, input }) => { const result = await approveRestaurantApplication(input); await writeAuditLog({ actorUserId: ctx.user.id, action: "restaurant_application.approved", entityType: "restaurant_application", entityId: input.applicationId, metadata: { ownerUserId: input.ownerUserId ?? null } }); return result; }),
+    setApplicationStatus: superAdminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["rejected", "suspended", "pending"]) })).mutation(async ({ ctx, input }) => { const result = await updateRestaurantApplicationStatus(input.id, input.status); await writeAuditLog({ actorUserId: ctx.user.id, action: `restaurant_application.${input.status}`, entityType: "restaurant_application", entityId: input.id }); return result; }),
+    users: superAdminProcedure.query(() => listOwnerUsers()),
+    orders: superAdminProcedure.query(() => listOwnerOrders()),
+    restaurants: superAdminProcedure.query(() => listOwnerRestaurants()),
+    auditLogs: superAdminProcedure.query(() => listOwnerAuditLogs()),
+    recordAccess: superAdminProcedure.mutation(async ({ ctx }) => { await writeAuditLog({ actorUserId: ctx.user.id, action: "owner_panel.accessed", entityType: "owner_panel" }); return { recorded: true }; }),
+  }),
   auth: router({
     me: publicProcedure.query(({ ctx }) => ctx.user ? ({ id: ctx.user.id, openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email, emailVerifiedAt: ctx.user.emailVerifiedAt, phone: ctx.user.phone, phoneVerifiedAt: ctx.user.phoneVerifiedAt, role: ctx.user.role, loginMethod: ctx.user.loginMethod, lastSignedIn: ctx.user.lastSignedIn }) : null),
     requestPhoneChallenge: publicProcedure.input(z.object({ phone: z.string().trim().min(12).max(16), channel: z.enum(["telegram", "max"]), purpose: z.enum(["register", "login"]), name: z.string().trim().min(2).max(120).optional(), acceptTerms: z.boolean().optional(), acceptPrivacy: z.boolean().optional() })).mutation(async ({ input }) => {
@@ -103,7 +115,7 @@ export const appRouter = router({
     }),
     verifyEmail: publicProcedure.input(z.object({ token: z.string().min(20).max(200) })).mutation(async ({ input }) => { try { return await verifyEmailAddress(input.token); } catch { throw new TRPCError({ code: "BAD_REQUEST", message: "Ссылка подтверждения недействительна или истекла." }); } }),
     resendVerification: publicProcedure.input(z.object({ email: z.string().email().max(320) })).mutation(async ({ input }) => { try { return await resendEmailVerification(normalizeEmail(input.email)); } catch (error) { if (error instanceof Error && error.message === "RESEND_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." }); if (error instanceof Error && error.message === "EMAIL_DELIVERY_FAILED") throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Не удалось отправить письмо подтверждения. Попробуйте позже." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось обработать запрос." }); } }),
-    login: publicProcedure.input(z.object({ email: z.string().email().max(320), password: z.string().min(1).max(128) })).mutation(async ({ input, ctx }) => { try { const user = await authenticateEmail(input.email, input.password); const token = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion }); ctx.res.cookie(getSessionCookieName(ctx.req), token, { ...getSessionCookieOptions(ctx.req), maxAge: 365 * 24 * 60 * 60 * 1000 }); return { success: true, sessionToken: token, user: { id: user.id, name: user.name, email: user.email, emailVerifiedAt: user.emailVerifiedAt } }; } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "EMAIL_NOT_VERIFIED") throw new TRPCError({ code: "FORBIDDEN", message: "Сначала подтвердите email." }); if (code === "LOGIN_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Попробуйте позже." }); throw new TRPCError({ code: "UNAUTHORIZED", message: "Неверный email или пароль." }); } }),
+    login: publicProcedure.input(z.object({ email: z.string().email().max(320), password: z.string().min(1).max(128) })).mutation(async ({ input, ctx }) => { try { const user = await authenticateEmail(input.email, input.password); const token = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion }); ctx.res.cookie(getSessionCookieName(ctx.req), token, { ...getSessionCookieOptions(ctx.req), maxAge: 365 * 24 * 60 * 60 * 1000 }); return { success: true, sessionToken: token, user: { id: user.id, name: user.name, email: user.email, emailVerifiedAt: user.emailVerifiedAt, role: user.role } }; } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "EMAIL_NOT_VERIFIED") throw new TRPCError({ code: "FORBIDDEN", message: "Сначала подтвердите email." }); if (code === "LOGIN_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Попробуйте позже." }); throw new TRPCError({ code: "UNAUTHORIZED", message: "Неверный email или пароль." }); } }),
     requestPasswordReset: publicProcedure.input(z.object({ email: z.string().email().max(320) })).mutation(async ({ input }) => { try { return await requestPasswordReset(input.email); } catch (error) { if (error instanceof Error && error.message === "EMAIL_DELIVERY_FAILED") throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Не удалось отправить письмо восстановления. Попробуйте позже." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось обработать запрос." }); } }),
     resetPassword: publicProcedure.input(z.object({ token: z.string().min(20).max(200), password: z.string().min(10).max(128), confirmPassword: z.string().min(10).max(128) }).refine((input) => input.password === input.confirmPassword, { message: "Пароли не совпадают", path: ["confirmPassword"] })).mutation(async ({ input }) => { try { return await resetPassword(input.token, input.password); } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "WEAK_PASSWORD") throw new TRPCError({ code: "BAD_REQUEST", message: "Пароль: минимум 10 символов, буквы разных регистров и цифра." }); throw new TRPCError({ code: "BAD_REQUEST", message: "Ссылка восстановления недействительна или истекла." }); } }),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -312,7 +324,7 @@ export const appRouter = router({
       catch (error) { if (error instanceof Error && error.message === "ORDER_NOT_READY") throw new TRPCError({ code: "CONFLICT", message: "Курьера можно назначить только на готовый заказ." }); if (error instanceof Error && error.message === "DRIVER_NOT_AVAILABLE") throw new TRPCError({ code: "BAD_REQUEST", message: "Курьер недоступен." }); if (error instanceof Error && error.message === "DRIVER_ALREADY_ASSIGNED") throw new TRPCError({ code: "CONFLICT", message: "К этому заказу уже привязан курьер." }); throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заказу или заведению." }); }
     }),
     orders: protectedProcedure.query(async ({ ctx }) => {
-      try { return await listOwnerOrders(ctx.user.id); }
+      try { return await listRestaurantOwnerOrders(ctx.user.id); }
       catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заказам заведения." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить заказы." }); }
     }),
     notifications: protectedProcedure.query(async ({ ctx }) => {

@@ -58,3 +58,10 @@
 - [ ] Implement customer order history/details with only real current-user orders: order number, restaurant, contents, immutable total, date/time, fulfillment, delivery address, current status and status history. Do not create fixtures or fake statuses.
 - [ ] Enforce server-side authorization and ownership for profiles, addresses, favorites and orders; protect personal data, phone challenge hashes and sessions; add distributed/IP/device rate limiting beyond the implemented per-challenge 60-second/five-attempt limits; return safe errors without internal server details.
 - [ ] Verify registration and login through a real Telegram/MAX user chat, code expiry, session persistence/termination, profile, addresses, favorites, order history and cross-user access denial. Synthetic both-channel challenge tests, typecheck, lint, tests and build pass; public webhook registration and real-device/provider delivery remain open.
+
+## Owner / Production access
+
+- [x] Implement a closed owner web entry point at `/owner/login` and `/owner`, with no client-app navigation item or owner controls in the customer UI; enforce `super_admin` on every owner procedure server-side.
+- [x] Add safe first-owner bootstrap through `scripts/bootstrap-super-admin.ts` using `OWNER_ADMIN_NAME`, `OWNER_ADMIN_EMAIL` and `OWNER_ADMIN_PASSWORD` from protected environment variables; refuse to auto-elevate an existing account and never create a fictitious owner.
+- [x] Add real owner overview metrics, users, orders, restaurants, pending restaurant applications, and audit log screens; record owner-panel access and application actions in `audit_logs`.
+- [ ] Complete remaining owner mutations and production controls: user block/unblock, promotion and commission management, promo campaigns, financial CSV exports, employee roles, admin MFA, backup/restore drill, and full Production Readiness Audit.

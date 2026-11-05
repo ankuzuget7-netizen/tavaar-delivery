@@ -25,7 +25,7 @@ export const users = mysqlTable("users", {
   termsAcceptedAt: timestamp("termsAcceptedAt"),
   privacyAcceptedAt: timestamp("privacyAcceptedAt"),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "super_admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -33,6 +33,19 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+export const auditLogs = mysqlTable("audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorUserId: int("actorUserId").notNull().references(() => users.id),
+  action: varchar("action", { length: 120 }).notNull(),
+  entityType: varchar("entityType", { length: 80 }).notNull(),
+  entityId: int("entityId"),
+  metadata: text("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;
 
 export const restaurantApplications = mysqlTable("restaurant_applications", {
   id: int("id").autoincrement().primaryKey(),

@@ -11,7 +11,7 @@ const LOCK_MS = 15 * 60 * 1000;
 export const normalizeEmail = (value: string) => value.trim().toLowerCase();
 export const validatePassword = (value: string) => value.length >= 10 && /[A-ZА-Я]/.test(value) && /[a-zа-я]/.test(value) && /\d/.test(value);
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
-const hashPassword = (password: string) => { const salt = randomBytes(16).toString("hex"); const derived = scryptSync(password, salt, 64).toString("hex"); return `scrypt$${salt}$${derived}`; };
+export const hashPassword = (password: string) => { const salt = randomBytes(16).toString("hex"); const derived = scryptSync(password, salt, 64).toString("hex"); return `scrypt$${salt}$${derived}`; };
 const verifyPassword = (password: string, encoded: string) => { const [, salt, expected] = encoded.split("$"); if (!salt || !expected) return false; const actual = scryptSync(password, salt, 64); const expectedBuffer = Buffer.from(expected, "hex"); return expectedBuffer.length === actual.length && timingSafeEqual(actual, expectedBuffer); };
 const rawToken = () => randomBytes(32).toString("base64url");
 

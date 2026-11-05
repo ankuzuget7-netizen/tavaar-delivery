@@ -1,0 +1,16 @@
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { router } from "expo-router";
+import { useState } from "react";
+import { ScreenContainer } from "@/components/screen-container";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+
+export default function OwnerLoginScreen() {
+  const colors = useColors();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const login = trpc.auth.login.useMutation({ onSuccess: async (data) => { if (data.user.role !== "super_admin") { setError("Этот аккаунт не является владельцем платформы."); return; } router.replace("/owner" as never); } });
+  const [error, setError] = useState("");
+  return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><View style={styles.wrap}><Text style={[styles.kicker, { color: colors.primary }]}>ТАВААР ДОСТАВКА</Text><Text style={[styles.title, { color: colors.foreground }]}>Вход владельца</Text><Text style={[styles.body, { color: colors.muted }]}>Закрытая веб-панель Super Admin. Эта страница не используется клиентами и ресторанами.</Text><Text style={[styles.label, { color: colors.foreground }]}>Email владельца</Text><TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="owner@example.com" placeholderTextColor={colors.muted} style={[styles.input, { color: colors.foreground, backgroundColor: colors.surface, borderColor: colors.border }]} /><Text style={[styles.label, { color: colors.foreground }]}>Пароль</Text><TextInput secureTextEntry value={password} onChangeText={setPassword} placeholder="Пароль" placeholderTextColor={colors.muted} style={[styles.input, { color: colors.foreground, backgroundColor: colors.surface, borderColor: colors.border }]} />{error || login.error ? <Text style={[styles.error, { color: colors.error }]}>{error || login.error?.message}</Text> : null}<Pressable disabled={login.isPending || !email || !password} onPress={() => { setError(""); login.mutate({ email, password }); }} style={[styles.primary, { backgroundColor: email && password ? colors.primary : colors.border }]}><Text style={[styles.primaryText, { color: email && password ? "#FFF8F1" : colors.muted }]}>{login.isPending ? "Проверяем доступ…" : "Войти в панель"}</Text></Pressable><Text style={[styles.note, { color: colors.muted }]}>Аккаунт создаётся отдельно серверной командой bootstrap. Обычная регистрация клиента не выдаёт права владельца.</Text></View></ScreenContainer>;
+}
+const styles = StyleSheet.create({ screen: { flex: 1 }, wrap: { width: "100%", maxWidth: 460, alignSelf: "center", padding: 24, gap: 11, justifyContent: "center", flex: 1 }, kicker: { fontSize: 10, fontWeight: "900", letterSpacing: 1.7 }, title: { fontSize: 32, fontWeight: "900", marginTop: 3 }, body: { fontSize: 14, lineHeight: 21, marginBottom: 9 }, label: { fontSize: 13, fontWeight: "900", marginTop: 4 }, input: { minHeight: 50, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, fontSize: 15 }, primary: { minHeight: 51, borderRadius: 15, alignItems: "center", justifyContent: "center", marginTop: 7 }, primaryText: { fontSize: 14, fontWeight: "900" }, error: { fontSize: 13, lineHeight: 19 }, note: { fontSize: 12, lineHeight: 18, marginTop: 8 } });
