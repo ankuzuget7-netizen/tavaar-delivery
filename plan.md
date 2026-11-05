@@ -1,4 +1,4 @@
-# Ак-Довурак Доставка — Architecture and implementation plan
+# Таваар Доставка — Architecture and implementation plan
 
 Status: approved by the user on 2026-11-04. Phase 1 foundation implemented; the application is not production-ready.
 
@@ -116,11 +116,11 @@ Three candidate directions: warm editorial neighborhood-market style (probabilit
 
 **Typography:** system-native Cyrillic sans serif body with a bold editorial sans headline treatment, 28–32 px major headings, 18–22 px section titles, 15–16 px body and 12–13 px metadata. Support dynamic font sizes and readable contrast.
 
-**Brand essence:** Food from your neighborhood, delivered with care in Ак-Довурак. Personality: warm, dependable, local.
+**Brand essence:** Food from your neighborhood, delivered with care by Таваар Доставка in Ак-Довураке. Personality: warm, dependable, local.
 
 **Brand voice:** direct and welcoming, never generic hype. Examples: «Что вкусного сегодня?» and «Добавить в корзину · 390 ₽».
 
-**Wordmark and logo:** a compact bowl/pin symbol beside a two-line Ак-Довурак wordmark; square native launcher icon without baked-in rounded corners.
+**Wordmark and logo:** a compact bowl/pin symbol beside a two-line Таваар wordmark; square native launcher icon without baked-in rounded corners.
 
 **Signature brand color:** tomato red `#E64B36`. Light/dark/automatic themes preserve legibility and identity.
 

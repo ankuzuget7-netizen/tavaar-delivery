@@ -1,4 +1,4 @@
-# Ак-Довурак Доставка — TODO
+# Таваар Доставка — TODO
 
 ## Approved foundation and honest scope
 - [x] Keep the project on the fixed Expo Router / React Native / TypeScript + Express/tRPC/Drizzle + managed MySQL stack; do not replace it with a different framework inside this project. Evidence: initialized Expo Mobile project, approved `plan.md`, and successful typecheck/build.

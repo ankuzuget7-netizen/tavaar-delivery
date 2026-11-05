@@ -83,7 +83,7 @@ export async function createBotDeepLink(channel: PhoneChannel, state: string) {
 }
 
 export async function sendBotCode(channel: PhoneChannel, chatId: string, code: string) {
-  const text = `Код подтверждения «Ак-Довурак Доставка»: ${code}. Код действует 5 минут и используется один раз.`;
+  const text = `Код подтверждения «Таваар Доставка»: ${code}. Код действует 5 минут и используется один раз.`;
   if (channel === "telegram") {
     await telegramRequest("sendMessage", { chat_id: chatId, text });
     return;
