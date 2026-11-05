@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Automated production installer for Tavaar Delivery on Ubuntu 22.04.
+# Automated production installer for Tavaar Delivery on Ubuntu 22.04 or Debian 13.
 # Run as root on a fresh VPS. Secrets are requested interactively and stored only in
 # /etc/tavaar.env with mode 600. No secret values are embedded in this file.
 
@@ -33,7 +33,7 @@ Options:
   --skip-webhooks    Configure the app but do not register Telegram/MAX webhooks
   -h, --help         Show this help
 
-The script must run as root on Ubuntu 22.04. It never prints or commits secret values.
+The script must run as root on Ubuntu 22.04 or Debian 13. It never prints or commits secret values.
 USAGE
 }
 
@@ -56,8 +56,19 @@ done
 [[ -r /etc/os-release ]] || die "/etc/os-release is missing"
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "22.04" ]] \
-  || die "This script requires Ubuntu 22.04; detected ${ID:-unknown} ${VERSION_ID:-unknown}"
+case "${ID:-}" in
+  ubuntu)
+    [[ "${VERSION_ID:-}" == "22.04" ]] \
+      || die "This script supports Ubuntu 22.04; detected ${ID:-unknown} ${VERSION_ID:-unknown}"
+    ;;
+  debian)
+    [[ "${VERSION_ID:-}" == "13" ]] \
+      || die "This script supports Debian 13 (Trixie); detected ${ID:-unknown} ${VERSION_ID:-unknown}"
+    ;;
+  *)
+    die "This script supports Ubuntu 22.04 or Debian 13; detected ${ID:-unknown} ${VERSION_ID:-unknown}"
+    ;;
+esac
 
 if [[ -z "$LE_EMAIL" ]]; then
   read -r -p "Email for Let's Encrypt renewal notices: " LE_EMAIL
@@ -92,13 +103,23 @@ if command -v openresty >/dev/null 2>&1 || systemctl list-unit-files | grep -q '
   fi
 fi
 
-log "Installing Node.js 20 and pnpm"
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+log "Installing Node.js 20+ and pnpm"
+if ! command -v node >/dev/null 2>&1; then
+  apt-get install -y nodejs npm
+fi
+if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'process.versions.node.split(\".\")[0]')" -lt 20 ]]; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs
 fi
-corepack enable
-corepack prepare pnpm@9.12.0 --activate
+command -v node >/dev/null 2>&1 || die "Node.js installation failed"
+[[ "$(node -p 'process.versions.node.split(\".\")[0]')" -ge 20 ]] \
+  || die "Node.js 20 or newer is required; detected $(node --version)"
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm@9.12.0 --activate
+else
+  npm install --global pnpm@9.12.0
+fi
 
 log "Creating application user and directory"
 if ! id "$APP_USER" >/dev/null 2>&1; then
