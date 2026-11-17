@@ -351,6 +351,48 @@ export async function listCustomerOrders(userId: number) {
   return db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, address: orders.address, totalKopecks: orders.totalKopecks, createdAt: orders.createdAt, restaurantName: restaurants.name }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(eq(orders.customerId, userId)).orderBy(desc(orders.createdAt));
 }
 
+export async function getCustomerOrderDetails(userId: number, orderId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const [order] = await db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, paymentMethod: orders.paymentMethod, address: orders.address, contactPhone: orders.contactPhone, customerComment: orders.customerComment, totalKopecks: orders.totalKopecks, deliveryFeeKopecks: orders.deliveryFeeKopecks, createdAt: orders.createdAt, updatedAt: orders.updatedAt, restaurantName: restaurants.name, restaurantPhone: restaurants.phone }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(and(eq(orders.id, orderId), eq(orders.customerId, userId))).limit(1);
+  if (!order) throw new Error("ORDER_NOT_FOUND");
+  const [items, history] = await Promise.all([
+    db.select().from(orderItems).where(eq(orderItems.orderId, orderId)),
+    db.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, orderId)).orderBy(desc(orderStatusHistory.createdAt)),
+  ]);
+  return { order, items, history };
+}
+
+export async function cancelCustomerOrder(userId: number, orderId: number, reason?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  return db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.customerId, userId))).limit(1);
+    if (!order) throw new Error("ORDER_NOT_FOUND");
+    if (!["placed", "restaurant_confirmed"].includes(order.status)) throw new Error("CANNOT_CANCEL_ORDER");
+    const note = reason?.trim() || "Отменено клиентом";
+    await tx.update(orders).set({ status: "cancelled" }).where(eq(orders.id, orderId));
+    await tx.insert(orderStatusHistory).values({ orderId, status: "cancelled", changedByUserId: userId, reason: note });
+    const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, order.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
+    if (owners.length) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: order.restaurantId, orderId, type: "order_status" as const, title: "Заказ отменён", body: `Клиент отменил заказ #${orderId}.` })));
+    return { orderId, status: "cancelled" as const };
+  });
+}
+
+export async function submitCustomerOrderComplaint(userId: number, orderId: number, reason: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  return db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.customerId, userId))).limit(1);
+    if (!order) throw new Error("ORDER_NOT_FOUND");
+    if (!["delivered", "completed"].includes(order.status)) throw new Error("COMPLAINT_NOT_AVAILABLE");
+    await tx.insert(orderStatusHistory).values({ orderId, status: "complaint", changedByUserId: userId, reason: reason.trim() });
+    const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, order.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
+    if (owners.length) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: order.restaurantId, orderId, type: "order_status" as const, title: "Жалоба по заказу", body: `Поступила жалоба по заказу #${orderId}.` })));
+    return { orderId, submitted: true };
+  });
+}
+
 export async function listOwnerOrders(userId: number) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);

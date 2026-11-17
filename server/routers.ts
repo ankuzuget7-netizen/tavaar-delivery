@@ -8,6 +8,9 @@ import {
   createOwnerMenuCategory,
   createOwnerMenuItem,
   createCustomerOrder,
+  getCustomerOrderDetails,
+  cancelCustomerOrder,
+  submitCustomerOrderComplaint,
   getRestaurantOwnerDashboard,
   getPublicRestaurantMenu,
   listCustomerOrders,
@@ -255,6 +258,18 @@ export const appRouter = router({
 
   customerOrders: router({
     list: protectedProcedure.query(async ({ ctx }) => listCustomerOrders(ctx.user.id)),
+    details: protectedProcedure.input(z.object({ orderId: z.number().int().positive() })).query(async ({ ctx, input }) => {
+      try { return await getCustomerOrderDetails(ctx.user.id, input.orderId); }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ не найден." }); }
+    }),
+    cancel: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), reason: z.string().trim().max(500).optional() })).mutation(async ({ ctx, input }) => {
+      try { return await cancelCustomerOrder(ctx.user.id, input.orderId, input.reason); }
+      catch (error) { if (error instanceof Error && error.message === "CANNOT_CANCEL_ORDER") throw new TRPCError({ code: "CONFLICT", message: "Заказ уже принят в работу и не может быть отменён через приложение." }); throw new TRPCError({ code: "NOT_FOUND", message: "Заказ не найден." }); }
+    }),
+    complaint: protectedProcedure.input(z.object({ orderId: z.number().int().positive(), reason: z.string().trim().min(10).max(1000) })).mutation(async ({ ctx, input }) => {
+      try { return await submitCustomerOrderComplaint(ctx.user.id, input.orderId, input.reason); }
+      catch (error) { if (error instanceof Error && error.message === "COMPLAINT_NOT_AVAILABLE") throw new TRPCError({ code: "CONFLICT", message: "Жалобу можно подать после доставки заказа." }); throw new TRPCError({ code: "NOT_FOUND", message: "Заказ не найден." }); }
+    }),
     tracking: protectedProcedure.input(z.object({ orderId: z.number().int().positive() })).query(async ({ ctx, input }) => {
       try { return await getCustomerOrderTracking(ctx.user.id, input.orderId); }
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ для отслеживания не найден." }); }
