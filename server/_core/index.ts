@@ -60,6 +60,19 @@ async function startServer() {
     }),
   );
 
+  app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) {
+      next(error);
+      return;
+    }
+    console.error("[API] unhandled request error", {
+      method: req.method,
+      path: req.path,
+      errorCode: error instanceof Error ? error.message : "UNKNOWN",
+    });
+    res.status(500).json({ error: { message: "Internal server error" } });
+  });
+
   const port = parseInt(process.env.PORT || "3000");
   server.listen(port, () => {
     console.log("[api] server listening");

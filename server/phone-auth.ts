@@ -111,7 +111,12 @@ export async function deliverBotCode(result: { challengeId: number; channel: Pho
   if (!result.code || result.alreadySent) return result;
   try {
     await sendBotCode(result.channel, result.chatId, result.code);
-  } catch {
+  } catch (error) {
+    console.error("[PhoneAuth] bot code delivery failed", {
+      challengeId: result.challengeId,
+      channel: result.channel,
+      errorCode: error instanceof Error ? error.message : "UNKNOWN",
+    });
     const db = await getDb();
     if (db) await db.update(phoneAuthChallenges).set({ codeHash: null, codeExpiresAt: null, resendAvailableAt: null }).where(eq(phoneAuthChallenges.id, result.challengeId));
     throw new Error("BOT_DELIVERY_FAILED");

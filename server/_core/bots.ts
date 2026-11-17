@@ -60,7 +60,12 @@ async function maxRequest<T>(urlPath: string, init: { method?: string; body?: st
     if (payload) request.write(payload);
     request.end();
   });
-  if (data.status < 200 || data.status >= 300) throw new Error(data.status === 401 ? "BOT_AUTH_FAILED" : "BOT_PROVIDER_ERROR");
+  if (data.status < 200 || data.status >= 300) {
+    const providerCode = typeof data.body.code === "string" ? data.body.code : undefined;
+    const providerMessage = typeof data.body.message === "string" ? data.body.message.slice(0, 300) : undefined;
+    console.error("[MAX] API request failed", { method: init.method || "GET", path: urlPath, status: data.status, providerCode, providerMessage });
+    throw new Error(data.status === 401 ? "BOT_AUTH_FAILED" : "BOT_PROVIDER_ERROR");
+  }
   return data.body as T;
 }
 
@@ -88,10 +93,15 @@ export async function sendBotCode(channel: PhoneChannel, chatId: string, code: s
     await telegramRequest("sendMessage", { chat_id: chatId, text });
     return;
   }
-  await maxRequest(`/messages?user_id=${encodeURIComponent(chatId)}`, {
-    method: "POST",
-    body: JSON.stringify({ text }),
-  });
+  try {
+    await maxRequest(`/messages?user_id=${encodeURIComponent(chatId)}`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+  } catch (error) {
+    console.error("[MAX] auth code delivery failed", { operation: "send_auth_code", errorCode: error instanceof Error ? error.message : "UNKNOWN" });
+    throw error;
+  }
 }
 
 export function hashBotState(value: string) {

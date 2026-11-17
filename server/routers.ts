@@ -87,6 +87,7 @@ export const appRouter = router({
         return await requestPhoneChallenge(input as { phone: string; channel: PhoneChannel; purpose: "register" | "login"; name?: string; acceptTerms?: boolean; acceptPrivacy?: boolean });
       } catch (error) {
         const code = error instanceof Error ? error.message : "";
+        if (input.channel === "max") console.error("[Auth] MAX phone challenge failed", { purpose: input.purpose, errorCode: code || "UNKNOWN" });
         if (code === "REGISTRATION_MAX_ONLY") throw new TRPCError({ code: "BAD_REQUEST", message: "Регистрация через Telegram временно недоступна. Используйте MAX." });
         if (code === "INVALID_PHONE") throw new TRPCError({ code: "BAD_REQUEST", message: "Введите номер в формате +7XXXXXXXXXX." });
         if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован. Войдите через подтверждение кода." });
