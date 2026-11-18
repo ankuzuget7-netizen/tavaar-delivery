@@ -25,6 +25,8 @@ function extractMessage(value: unknown): string | undefined {
   const record = value as Record<string, unknown>;
   const direct = record.message;
   if (typeof direct === "string" && direct.trim()) return direct;
+  const nested = record.json;
+  if (nested && nested !== value) return extractMessage(nested);
   return undefined;
 }
 
@@ -36,7 +38,10 @@ function extractMessage(value: unknown): string | undefined {
  */
 export async function requestPhoneChallengeJson(input: PhoneChallengeInput): Promise<PhoneChallengeResult> {
   const token = await Auth.getSessionToken();
-  const response = await fetch(`${getApiBaseUrl()}/api/trpc/auth.requestPhoneChallenge?batch=1`, {
+  // Web must use same-origin so stale Expo extra config cannot send the request
+  // to localhost or an old preview origin. Native keeps the configured API URL.
+  const apiOrigin = typeof window !== "undefined" ? "" : getApiBaseUrl();
+  const response = await fetch(`${apiOrigin}/api/trpc/auth.requestPhoneChallenge?batch=1`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -57,7 +62,7 @@ export async function requestPhoneChallengeJson(input: PhoneChallengeInput): Pro
   if (!response.ok || item?.error) {
     const errorData = item?.error?.json ?? item?.error ?? item;
     const message = extractMessage(errorData);
-    throw new Error(message || "Не удалось начать подтверждение номера.");
+    throw new Error(message || `Не удалось начать подтверждение номера (HTTP ${response.status}).`);
   }
 
   const data = item?.result?.data?.json ?? item?.result?.data;
