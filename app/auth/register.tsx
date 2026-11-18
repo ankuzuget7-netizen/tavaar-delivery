@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
+import { openMaxBotLink } from "@/lib/max-deep-link";
 import { formatPhone, isCompleteRussianPhone } from "./login";
 
 export default function RegisterScreen() {
@@ -12,7 +13,10 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState("+7");
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
-  const challenge = trpc.auth.requestPhoneChallenge.useMutation({ onSuccess: (data) => router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone } } as never) });
+  const challenge = trpc.auth.requestPhoneChallenge.useMutation({ onSuccess: (data) => {
+    router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone: formattedPhone } } as never);
+    if (data.channel === "max" && data.deepLink) void openMaxBotLink(data.deepLink).catch(() => undefined);
+  } });
   const formattedPhone = formatPhone(phone);
   const valid = name.trim().length >= 2 && isCompleteRussianPhone(formattedPhone) && terms && privacy;
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>

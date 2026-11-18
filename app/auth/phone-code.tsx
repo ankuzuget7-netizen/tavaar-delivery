@@ -5,6 +5,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import * as Auth from "@/lib/_core/auth";
+import { openMaxBotLink } from "@/lib/max-deep-link";
 
 export default function PhoneCodeScreen() {
   const colors = useColors();
@@ -29,7 +30,7 @@ export default function PhoneCodeScreen() {
     <Text style={[styles.eyebrow, { color: colors.primary }]}>ПОДТВЕРЖДЕНИЕ</Text>
     <Text style={[styles.title, { color: colors.foreground }]}>Введите код</Text>
     <Text style={[styles.body, { color: colors.muted }]}>Откройте бота {channel} по ссылке ниже и нажмите «Старт». После этого бот отправит код подтверждения для номера {params.phone || ""}.</Text>
-    <Pressable disabled={!deepLink} onPress={() => deepLink && Linking.openURL(deepLink)} style={[styles.botButton, { borderColor: colors.primary, backgroundColor: colors.surface }]}><Text style={[styles.botButtonText, { color: colors.primary }]}>Открыть {channel}</Text></Pressable>
+    <Pressable disabled={!deepLink} onPress={() => deepLink && (params.channel === "max" ? void openMaxBotLink(deepLink).catch(() => undefined) : void Linking.openURL(deepLink).catch(() => undefined))} style={[styles.botButton, { borderColor: colors.primary, backgroundColor: colors.surface }]}><Text style={[styles.botButtonText, { color: colors.primary }]}>{channel === "MAX" ? "Открыть MAX-бота" : `Открыть ${channel}`}</Text></Pressable>
     <View style={[styles.status, { backgroundColor: colors.surface, borderColor: colors.border }]}><View style={[styles.dot, { backgroundColor: linked ? colors.success : colors.warning }]} /><Text style={[styles.statusText, { color: colors.foreground }]}>{linked ? "Бот подключён, код отправлен" : "Ожидаем запуск бота…"}</Text></View>
     <TextInput value={code} onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 4))} keyboardType="number-pad" maxLength={4} placeholder="0000" placeholderTextColor={colors.muted} style={[styles.code, { color: colors.foreground, backgroundColor: colors.surface, borderColor: colors.border }]} />
     <Text style={[styles.hint, { color: colors.muted }]}>Код действует: {expiresText}</Text>
