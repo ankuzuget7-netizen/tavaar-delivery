@@ -37,6 +37,32 @@ export async function getDb() {
   return _db;
 }
 
+export async function getUserAccessProfile(userId: number) {
+  const db = await getDb();
+  if (!db) return { isRestaurantOwner: false, restaurantIds: [] as number[], isDriver: false };
+
+  const memberships = await db
+    .select({ restaurantId: restaurantMembers.restaurantId })
+    .from(restaurantMembers)
+    .innerJoin(restaurants, eq(restaurants.id, restaurantMembers.restaurantId))
+    .where(and(
+      eq(restaurantMembers.userId, userId),
+      inArray(restaurantMembers.role, ["owner", "manager"]),
+      eq(restaurants.status, "active"),
+    ));
+  const [driver] = await db
+    .select({ id: deliveryDrivers.id })
+    .from(deliveryDrivers)
+    .where(eq(deliveryDrivers.userId, userId))
+    .limit(1);
+
+  return {
+    isRestaurantOwner: memberships.length > 0,
+    restaurantIds: memberships.map((item) => item.restaurantId),
+    isDriver: Boolean(driver),
+  };
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");

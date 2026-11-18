@@ -65,3 +65,9 @@
 - [x] Add safe first-owner bootstrap through `scripts/bootstrap-super-admin.ts` using `OWNER_ADMIN_NAME`, `OWNER_ADMIN_EMAIL` and `OWNER_ADMIN_PASSWORD` from protected environment variables; refuse to auto-elevate an existing account and never create a fictitious owner.
 - [x] Add real owner overview metrics, users, orders, restaurants, pending restaurant applications, and audit log screens; record owner-panel access and application actions in `audit_logs`.
 - [ ] Complete remaining owner mutations and production controls: user block/unblock, promotion and commission management, promo campaigns, financial CSV exports, employee roles, admin MFA, backup/restore drill, and full Production Readiness Audit.
+
+
+## Auth routing follow-up — 2026-11-18
+- [x] После успешного `auth.verifyPhoneCode` выдавать серверную сессию вместе с ролью и access-profile; направлять `super_admin` в `/owner`, `admin` в `/admin/applications`, пользователя с одобренным membership владельца в `/partner/dashboard`, курьера в `/driver/dashboard`, обычного клиента в `/(tabs)`.
+- [x] Отображать access-profile также через `auth.me`, чтобы роль и доступы восстанавливались после обновления страницы/перезапуска приложения только из server response.
+- [ ] Провести реальные end-to-end проверки для существующих аккаунтов клиента, владельца и администратора на web, Android и iOS; отдельно проверить переключение нескольких ролей и восстановление после закрытия/повторного запуска.

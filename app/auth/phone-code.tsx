@@ -6,6 +6,7 @@ import { useColors } from "@/hooks/use-colors";
 import { trpc } from "@/lib/trpc";
 import * as Auth from "@/lib/_core/auth";
 import { openMaxBotLink } from "@/lib/max-deep-link";
+import { getPostAuthRoute } from "@/lib/auth-routing";
 
 export default function PhoneCodeScreen() {
   const colors = useColors();
@@ -16,7 +17,7 @@ export default function PhoneCodeScreen() {
   const [code, setCode] = useState("");
   const [now, setNow] = useState(0);
   const { data: statusData, error: statusError, refetch } = trpc.auth.phoneChallengeStatus.useQuery({ challengeId }, { enabled: Number.isInteger(challengeId) && challengeId > 0, refetchInterval: 1500 });
-  const verify = trpc.auth.verifyPhoneCode.useMutation({ onSuccess: async (data) => { if (data.sessionToken) await Auth.setSessionToken(data.sessionToken); router.replace("/(tabs)/profile" as never); } });
+  const verify = trpc.auth.verifyPhoneCode.useMutation({ onSuccess: async (data) => { if (data.sessionToken) await Auth.setSessionToken(data.sessionToken); router.replace(getPostAuthRoute(data.user) as never); } });
   const linked = Boolean(statusData?.linked);
   const remaining = statusData?.codeExpiresAt && now ? new Date(statusData.codeExpiresAt).getTime() - now : 0;
   const expiresText = now ? (remaining > 0 ? `${Math.ceil(remaining / 1000)} с` : "истёк") : "…";

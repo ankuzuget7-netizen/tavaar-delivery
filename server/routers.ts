@@ -12,6 +12,7 @@ import {
   cancelCustomerOrder,
   submitCustomerOrderComplaint,
   getRestaurantOwnerDashboard,
+  getUserAccessProfile,
   getPublicRestaurantMenu,
   listCustomerOrders,
   listOwnerNotifications,
@@ -63,7 +64,8 @@ import { getOwnerOverview, listOwnerAuditLogs, listOwnerOrders, listOwnerRestaur
 async function createPhoneSession(ctx: Pick<TrpcContext, "req" | "res">, user: any) {
   const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion });
   ctx.res.cookie(getSessionCookieName(ctx.req), sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: 365 * 24 * 60 * 60 * 1000 });
-  return { success: true as const, sessionToken, user: { id: user.id, name: user.name, email: user.email, phone: user.phone } };
+  const access = await getUserAccessProfile(user.id);
+  return { success: true as const, sessionToken, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, access } };
 }
 
 export const appRouter = router({
@@ -81,7 +83,7 @@ export const appRouter = router({
     recordAccess: superAdminProcedure.mutation(async ({ ctx }) => { await writeAuditLog({ actorUserId: ctx.user.id, action: "owner_panel.accessed", entityType: "owner_panel" }); return { recorded: true }; }),
   }),
   auth: router({
-    me: publicProcedure.query(({ ctx }) => ctx.user ? ({ id: ctx.user.id, openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email, emailVerifiedAt: ctx.user.emailVerifiedAt, phone: ctx.user.phone, phoneVerifiedAt: ctx.user.phoneVerifiedAt, role: ctx.user.role, loginMethod: ctx.user.loginMethod, lastSignedIn: ctx.user.lastSignedIn }) : null),
+    me: publicProcedure.query(async ({ ctx }) => ctx.user ? ({ id: ctx.user.id, openId: ctx.user.openId, name: ctx.user.name, email: ctx.user.email, emailVerifiedAt: ctx.user.emailVerifiedAt, phone: ctx.user.phone, phoneVerifiedAt: ctx.user.phoneVerifiedAt, role: ctx.user.role, loginMethod: ctx.user.loginMethod, lastSignedIn: ctx.user.lastSignedIn, access: await getUserAccessProfile(ctx.user.id) }) : null),
     requestPhoneChallenge: publicProcedure.input(z.object({ phone: z.string().trim().min(12).max(16), channel: z.enum(["telegram", "max"]), purpose: z.enum(["register", "login"]), name: z.string().trim().min(2).max(120).optional(), acceptTerms: z.boolean().optional(), acceptPrivacy: z.boolean().optional() })).mutation(async ({ input }) => {
       try {
         return await requestPhoneChallenge(input as { phone: string; channel: PhoneChannel; purpose: "register" | "login"; name?: string; acceptTerms?: boolean; acceptPrivacy?: boolean });
