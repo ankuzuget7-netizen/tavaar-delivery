@@ -1,9 +1,10 @@
 import { router } from "expo-router";
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { trpc } from "@/lib/trpc";
+import { requestPhoneChallengeJson } from "@/lib/auth-phone-challenge";
 
 type Channel = "telegram" | "max";
 
@@ -11,7 +12,7 @@ export default function LoginScreen() {
   const colors = useColors();
   const [phone, setPhone] = useState("+7");
   const [channel, setChannel] = useState<Channel>("telegram");
-  const challenge = trpc.auth.requestPhoneChallenge.useMutation({ onSuccess: (data) => router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone } } as never) });
+  const challenge = useMutation({ mutationFn: requestPhoneChallengeJson, onSuccess: (data) => router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone } } as never) });
   const formattedPhone = formatPhone(phone);
   const valid = isCompleteRussianPhone(formattedPhone);
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>

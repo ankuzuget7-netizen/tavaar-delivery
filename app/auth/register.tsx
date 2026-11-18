@@ -1,10 +1,11 @@
 import { router } from "expo-router";
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { trpc } from "@/lib/trpc";
 import { openMaxBotLink } from "@/lib/max-deep-link";
+import { requestPhoneChallengeJson } from "@/lib/auth-phone-challenge";
 import { formatPhone, isCompleteRussianPhone } from "./login";
 
 export default function RegisterScreen() {
@@ -13,7 +14,7 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState("+7");
   const [terms, setTerms] = useState(false);
   const [privacy, setPrivacy] = useState(false);
-  const challenge = trpc.auth.requestPhoneChallenge.useMutation({ onSuccess: (data) => {
+  const challenge = useMutation({ mutationFn: requestPhoneChallengeJson, onSuccess: (data) => {
     router.push({ pathname: "/auth/phone-code", params: { challengeId: String(data.challengeId), deepLink: data.deepLink || "", channel: data.channel, phone: formattedPhone } } as never);
     if (data.channel === "max" && data.deepLink) void openMaxBotLink(data.deepLink).catch(() => undefined);
   } });
