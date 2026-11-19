@@ -73,6 +73,8 @@ describe("Mobile API origin and cookie isolation", () => {
     expect([...trustedExpoWebOrigins()].sort()).toEqual([
       "https://8081-sandbox.region.preview.example.test",
       "https://8328-sandbox.region.preview.example.test",
+      "https://tavaar.online",
+      "https://www.tavaar.online",
     ]);
   });
 
@@ -159,7 +161,7 @@ describe("Mobile API origin and cookie isolation", () => {
     const previousPackager = process.env.EXPO_PACKAGER_PROXY_URL;
     try {
       process.env.EXPO_PACKAGER_PROXY_URL = origin;
-      expect([...trustedExpoWebOrigins()]).toEqual([]);
+      expect([...trustedExpoWebOrigins()]).not.toContain(origin);
       const base = await testServer(
         false,
         new Set([origin]),

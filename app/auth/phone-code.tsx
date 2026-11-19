@@ -16,8 +16,19 @@ export default function PhoneCodeScreen() {
   const channel = params.channel === "max" ? "MAX" : "Telegram";
   const [code, setCode] = useState("");
   const [now, setNow] = useState(0);
+  const utils = trpc.useUtils();
   const { data: statusData, error: statusError, refetch } = trpc.auth.phoneChallengeStatus.useQuery({ challengeId }, { enabled: Number.isInteger(challengeId) && challengeId > 0, refetchInterval: 1500 });
-  const verify = trpc.auth.verifyPhoneCode.useMutation({ onSuccess: async (data) => { if (data.sessionToken) await Auth.setSessionToken(data.sessionToken); router.replace(getPostAuthRoute(data.user) as never); } });
+  const verify = trpc.auth.verifyPhoneCode.useMutation({ onSuccess: async (data) => {
+    if (data.sessionToken) await Auth.setSessionToken(data.sessionToken);
+    // Read the role/access profile from the newly created server session. This is
+    // important on web where the session is a cookie and the mutation payload may
+    // be cached by a stale client bundle.
+    await utils.auth.me.invalidate();
+    const currentUser = await utils.auth.me.fetch();
+    const destination = getPostAuthRoute(currentUser ?? data.user);
+    router.dismissAll();
+    router.replace(destination as never);
+  } });
   const linked = Boolean(statusData?.linked);
   const remaining = statusData?.codeExpiresAt && now ? new Date(statusData.codeExpiresAt).getTime() - now : 0;
   const expiresText = now ? (remaining > 0 ? `${Math.ceil(remaining / 1000)} с` : "истёк") : "…";
