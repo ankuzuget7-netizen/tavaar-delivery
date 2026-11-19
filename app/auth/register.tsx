@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
-import { TavaarBrand } from "@/components/tavaar-brand";
 import { useColors } from "@/hooks/use-colors";
 import { openMaxBotLink } from "@/lib/max-deep-link";
 import { requestPhoneChallengeJson } from "@/lib/auth-phone-challenge";
@@ -22,7 +21,6 @@ export default function RegisterScreen() {
   const formattedPhone = formatPhone(phone);
   const valid = name.trim().length >= 2 && isCompleteRussianPhone(formattedPhone) && terms && privacy;
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>
-    <TavaarBrand />
     <Text style={[styles.eyebrow, { color: colors.primary }]}>НОВЫЙ АККАУНТ</Text>
     <Text style={[styles.title, { color: colors.foreground }]}>Регистрация</Text>
     <Text style={[styles.body, { color: colors.muted }]}>Укажите имя и телефон. Код активации отправим через официальный бот MAX.</Text>

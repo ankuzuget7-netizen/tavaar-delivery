@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
-import { TavaarBrand } from "@/components/tavaar-brand";
 import { useColors } from "@/hooks/use-colors";
 import { requestPhoneChallengeJson } from "@/lib/auth-phone-challenge";
 
@@ -17,7 +16,6 @@ export default function LoginScreen() {
   const formattedPhone = formatPhone(phone);
   const valid = isCompleteRussianPhone(formattedPhone);
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>
-    <TavaarBrand />
     <Text style={[styles.eyebrow, { color: colors.primary }]}>АККАУНТ</Text>
     <Text style={[styles.title, { color: colors.foreground }]}>Войти по телефону</Text>
     <Text style={[styles.body, { color: colors.muted }]}>Введите номер и выберите мессенджер. Код придёт после запуска нашего бота.</Text>
