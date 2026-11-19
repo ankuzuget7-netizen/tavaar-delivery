@@ -102,7 +102,7 @@ const config: ExpoConfig = {
   web: {
     bundler: "metro",
     output: "static",
-    favicon: "./assets/images/tavaar-logo-reference.png",
+    favicon: "./assets/images/favicon.png",
   },
   plugins: [
     "expo-asset",
@@ -130,10 +130,10 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
-        image: "./assets/images/tavaar-logo-reference.png",
+        image: "./assets/images/splash-icon.png",
         imageWidth: 200,
         resizeMode: "contain",
-        backgroundColor: "#6B151C",
+        backgroundColor: "#FFF8F1",
         dark: {
           backgroundColor: "#6B151C",
         },
