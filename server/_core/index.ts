@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -59,6 +61,18 @@ async function startServer() {
       createContext,
     }),
   );
+
+  // The production container builds Expo Web into web-dist. Keep API routes above
+  // this handler so browser navigation cannot turn an API error into HTML.
+  const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web-dist");
+  app.use(express.static(webRoot, { index: "index.html" }));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/")) return next();
+    if (!req.accepts("html")) return next();
+    res.sendFile(path.join(webRoot, "index.html"), (error) => {
+      if (error) next(error);
+    });
+  });
 
   app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (res.headersSent) {
