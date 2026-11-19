@@ -2,15 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Tuvan Delivery Editorial foundation for the static web renderer. */
+/* Tavaar Delivery — lacquer garnet / warm milk editorial foundation. */
+:root {
+  color-scheme: light;
+  --tavaar-garnet: #8b2028;
+  --tavaar-garnet-deep: #68151d;
+  --tavaar-milk: #f7f1e8;
+  --tavaar-paper: #fffdf8;
+  --tavaar-ink: #241f1d;
+  --tavaar-gold: #d9a34a;
+}
+
 html,
 body {
-  background: #f5f0e6;
-  color: #282522;
+  background: var(--tavaar-milk);
+  color: var(--tavaar-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  min-height: 100%;
 }
 
 * {
   box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: #d9a34a55;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
 }

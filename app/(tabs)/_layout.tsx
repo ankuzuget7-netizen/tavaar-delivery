@@ -14,19 +14,19 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.tint,
+        tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarStyle: { paddingTop: 9, paddingBottom: bottomPadding, height: 60 + bottomPadding, backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: 0.5 },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "800" },
+        tabBarStyle: { paddingTop: 9, paddingBottom: bottomPadding, height: 60 + bottomPadding, backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: 1, elevation: 12, shadowColor: colors.primary, shadowOpacity: 0.08, shadowRadius: 14 },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: "900" },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "Главная", tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} /> }} />
-      <Tabs.Screen name="cart" options={{ title: "Корзина", tabBarIcon: ({ color, size }) => <Ionicons name="bag-handle-outline" size={size} color={color} /> }} />
-      <Tabs.Screen name="orders" options={{ title: "Заказы", tabBarIcon: ({ color, size }) => <Ionicons name="receipt-outline" size={size} color={color} /> }} />
-      <Tabs.Screen name="support" options={{ title: "Помощь", tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-ellipses-outline" size={size} color={color} /> }} />
-      <Tabs.Screen name="profile" options={{ title: "Профиль", tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} /> }} />
+      <Tabs.Screen name="index" options={{ title: "Главная", tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} /> }} />
+      <Tabs.Screen name="cart" options={{ title: "Корзина", tabBarIcon: ({ color, size }) => <Ionicons name="bag-handle" size={size} color={color} /> }} />
+      <Tabs.Screen name="orders" options={{ title: "Заказы", tabBarIcon: ({ color, size }) => <Ionicons name="receipt" size={size} color={color} /> }} />
+      <Tabs.Screen name="support" options={{ title: "Помощь", tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-ellipses" size={size} color={color} /> }} />
+      <Tabs.Screen name="profile" options={{ title: "Профиль", tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} /> }} />
     </Tabs>
   );
 }
