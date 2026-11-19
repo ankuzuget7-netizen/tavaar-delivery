@@ -1,5 +1,5 @@
 import { desc, eq, sql } from "drizzle-orm";
-import { auditLogs, orders, restaurantApplications, restaurants, users } from "../drizzle/schema";
+import { auditLogs, menuCategories, menuItems, orders, restaurantApplications, restaurants, users } from "../drizzle/schema";
 import { getDb } from "./db";
 
 export async function getOwnerOverview() {
@@ -30,7 +30,56 @@ export async function listOwnerOrders() {
 export async function listOwnerRestaurants() {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  return db.select({ id: restaurants.id, name: restaurants.name, type: restaurants.type, address: restaurants.address, phone: restaurants.phone, status: restaurants.status, createdAt: restaurants.createdAt }).from(restaurants).orderBy(desc(restaurants.createdAt));
+  return db.select({ id: restaurants.id, name: restaurants.name, type: restaurants.type, address: restaurants.address, phone: restaurants.phone, description: restaurants.description, status: restaurants.status, createdAt: restaurants.createdAt }).from(restaurants).orderBy(desc(restaurants.createdAt));
+}
+
+export async function updateOwnerRestaurant(input: { id: number; name: string; type: string; address: string; phone: string; description?: string; status: "active" | "suspended" | "blocked" }) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const [existing] = await db.select({ id: restaurants.id }).from(restaurants).where(eq(restaurants.id, input.id)).limit(1);
+  if (!existing) throw new Error("RESTAURANT_NOT_FOUND");
+  await db.update(restaurants).set({ name: input.name.trim(), type: input.type.trim(), address: input.address.trim(), phone: input.phone.trim(), description: input.description?.trim() || null, status: input.status }).where(eq(restaurants.id, input.id));
+  return { id: input.id, updated: true };
+}
+
+export async function listOwnerCategories(restaurantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const query = db.select({ id: menuCategories.id, restaurantId: menuCategories.restaurantId, restaurantName: restaurants.name, name: menuCategories.name, sortOrder: menuCategories.sortOrder, createdAt: menuCategories.createdAt }).from(menuCategories).innerJoin(restaurants, eq(restaurants.id, menuCategories.restaurantId));
+  return restaurantId ? query.where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id) : query.orderBy(desc(menuCategories.createdAt));
+}
+
+export async function createOwnerCategory(input: { restaurantId: number; name: string; sortOrder?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const [restaurant] = await db.select({ id: restaurants.id }).from(restaurants).where(eq(restaurants.id, input.restaurantId)).limit(1);
+  if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
+  const name = input.name.trim();
+  if (!name) throw new Error("CATEGORY_NAME_REQUIRED");
+  const result = await db.insert(menuCategories).values({ restaurantId: input.restaurantId, name, sortOrder: input.sortOrder ?? 0 });
+  return { id: Number(result[0].insertId), restaurantId: input.restaurantId, name };
+}
+
+export async function updateOwnerCategory(input: { id: number; name: string; sortOrder?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const name = input.name.trim();
+  if (!name) throw new Error("CATEGORY_NAME_REQUIRED");
+  const [existing] = await db.select({ id: menuCategories.id }).from(menuCategories).where(eq(menuCategories.id, input.id)).limit(1);
+  if (!existing) throw new Error("CATEGORY_NOT_FOUND");
+  await db.update(menuCategories).set({ name, sortOrder: input.sortOrder ?? 0 }).where(eq(menuCategories.id, input.id));
+  return { id: input.id, updated: true };
+}
+
+export async function deleteOwnerCategory(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const [existing] = await db.select({ id: menuCategories.id }).from(menuCategories).where(eq(menuCategories.id, id)).limit(1);
+  if (!existing) throw new Error("CATEGORY_NOT_FOUND");
+  const [item] = await db.select({ id: menuItems.id }).from(menuItems).where(eq(menuItems.categoryId, id)).limit(1);
+  if (item) throw new Error("CATEGORY_HAS_ITEMS");
+  await db.delete(menuCategories).where(eq(menuCategories.id, id));
+  return { id, deleted: true };
 }
 
 export async function writeAuditLog(input: { actorUserId: number; action: string; entityType: string; entityId?: number; metadata?: Record<string, unknown> }) {

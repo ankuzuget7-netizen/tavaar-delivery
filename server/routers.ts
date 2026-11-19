@@ -59,7 +59,7 @@ import {
 } from "./account";
 import { getPhoneChallengeStatus, requestPhoneChallenge, verifyPhoneChallenge } from "./phone-auth";
 import type { PhoneChannel } from "./_core/bots";
-import { getOwnerOverview, listOwnerAuditLogs, listOwnerOrders, listOwnerRestaurants, listOwnerUsers, writeAuditLog } from "./owner-admin";
+import { createOwnerCategory, deleteOwnerCategory, getOwnerOverview, listOwnerAuditLogs, listOwnerCategories, listOwnerOrders, listOwnerRestaurants, listOwnerUsers, updateOwnerCategory, updateOwnerRestaurant, writeAuditLog } from "./owner-admin";
 
 async function createPhoneSession(ctx: Pick<TrpcContext, "req" | "res">, user: any) {
   const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name || "", authVersion: user.authVersion });
@@ -79,6 +79,11 @@ export const appRouter = router({
     users: superAdminProcedure.query(() => listOwnerUsers()),
     orders: superAdminProcedure.query(() => listOwnerOrders()),
     restaurants: superAdminProcedure.query(() => listOwnerRestaurants()),
+    updateRestaurant: superAdminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(160), type: z.string().trim().min(1).max(80), address: z.string().trim().min(2).max(240), phone: z.string().trim().min(3).max(32), description: z.string().trim().max(5000).optional(), status: z.enum(["active", "suspended", "blocked"]) })).mutation(async ({ ctx, input }) => { const result = await updateOwnerRestaurant(input); await writeAuditLog({ actorUserId: ctx.user.id, action: "restaurant.updated", entityType: "restaurant", entityId: input.id, metadata: { status: input.status } }); return result; }),
+    categories: superAdminProcedure.input(z.object({ restaurantId: z.number().int().positive().optional() }).optional()).query(({ input }) => listOwnerCategories(input?.restaurantId)),
+    createCategory: superAdminProcedure.input(z.object({ restaurantId: z.number().int().positive(), name: z.string().trim().min(1).max(120), sortOrder: z.number().int().min(0).max(100000).optional() })).mutation(async ({ ctx, input }) => { const result = await createOwnerCategory(input); await writeAuditLog({ actorUserId: ctx.user.id, action: "menu_category.created", entityType: "menu_category", entityId: result.id, metadata: { restaurantId: input.restaurantId } }); return result; }),
+    updateCategory: superAdminProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(1).max(120), sortOrder: z.number().int().min(0).max(100000).optional() })).mutation(async ({ ctx, input }) => { const result = await updateOwnerCategory(input); await writeAuditLog({ actorUserId: ctx.user.id, action: "menu_category.updated", entityType: "menu_category", entityId: input.id }); return result; }),
+    deleteCategory: superAdminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { const result = await deleteOwnerCategory(input.id); await writeAuditLog({ actorUserId: ctx.user.id, action: "menu_category.deleted", entityType: "menu_category", entityId: input.id }); return result; }),
     auditLogs: superAdminProcedure.query(() => listOwnerAuditLogs()),
     recordAccess: superAdminProcedure.mutation(async ({ ctx }) => { await writeAuditLog({ actorUserId: ctx.user.id, action: "owner_panel.accessed", entityType: "owner_panel" }); return { recorded: true }; }),
   }),
