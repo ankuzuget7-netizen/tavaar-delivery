@@ -1,14 +1,15 @@
 /** @type {const} */
 const themeColors = {
-  primary: { light: '#E64B36', dark: '#FF806D' },
-  background: { light: '#FFF9F5', dark: '#171311' },
-  surface: { light: '#FFFFFF', dark: '#241D1A' },
-  foreground: { light: '#201816', dark: '#FFF4EE' },
-  muted: { light: '#786F6B', dark: '#B9AAA4' },
-  border: { light: '#E9DDD7', dark: '#4A3933' },
-  success: { light: '#2F9E68', dark: '#63D297' },
-  warning: { light: '#C98219', dark: '#F2B950' },
-  error: { light: '#D84A4A', dark: '#FF8A8A' },
+  // Tuvan Delivery Editorial: lacquer red, warm milk, gold and deep teal.
+  primary: { light: '#8F2929', dark: '#C65A55' },
+  background: { light: '#F5F0E6', dark: '#1D1113' },
+  surface: { light: '#FFF9F0', dark: '#2A191B' },
+  foreground: { light: '#282522', dark: '#F5F0E6' },
+  muted: { light: '#776B63', dark: '#C2ADA5' },
+  border: { light: '#E2D4C5', dark: '#5A3938' },
+  success: { light: '#2F6F61', dark: '#79B5A5' },
+  warning: { light: '#B88939', dark: '#E5C58A' },
+  error: { light: '#B63A3A', dark: '#F07D73' },
 };
 
 module.exports = { themeColors };

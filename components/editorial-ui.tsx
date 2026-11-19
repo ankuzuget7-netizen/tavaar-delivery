@@ -11,7 +11,7 @@ export function SectionHeading({ title, meta, action }: { title: string; meta?: 
 
 export function SurfaceCard({ children, style }: PropsWithChildren<{ style?: object }>) {
   const colors = useColors();
-  return <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }, style]}>{children}</View>;
+  return <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.primary }, style]}>{children}</View>;
 }
 
 export function EditorialIcon({ name, size = 22, tone = "primary" }: { name: keyof typeof Ionicons.glyphMap; size?: number; tone?: "primary" | "muted" | "success" }) {
@@ -37,12 +37,12 @@ export function Price({ kopecks, large = false }: { kopecks: number; large?: boo
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: 24, padding: 14 },
+  card: { borderWidth: 1, borderRadius: 22, padding: 14, shadowOpacity: 0.06, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 2 },
   heading: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginTop: 5, marginBottom: 3 },
-  headingTitle: { fontSize: 21, fontWeight: "800", letterSpacing: -0.35 },
-  headingMeta: { fontSize: 12, fontWeight: "700" },
-  iconWell: { width: 50, height: 50, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  pill: { minHeight: 42, borderRadius: 15, borderWidth: 1, paddingHorizontal: 13, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" },
+  headingTitle: { fontSize: 21, fontWeight: "800", letterSpacing: -0.45 },
+  headingMeta: { fontSize: 12, fontWeight: "800", letterSpacing: 0.2 },
+  iconWell: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  pill: { minHeight: 40, borderRadius: 13, borderWidth: 1, paddingHorizontal: 13, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" },
   pillText: { fontSize: 12, fontWeight: "800" },
   empty: { alignItems: "center", gap: 9, paddingVertical: 26 },
   emptyTitle: { fontSize: 18, fontWeight: "800", textAlign: "center" },

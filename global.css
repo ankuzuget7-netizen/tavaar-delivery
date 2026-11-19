@@ -1,3 +1,16 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Tuvan Delivery Editorial foundation for the static web renderer. */
+html,
+body {
+  background: #f5f0e6;
+  color: #282522;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
