@@ -32,6 +32,8 @@ import {
   updateOwnerOrderStatus,
   updateRestaurantApplicationStatus,
   upsertOwnerHours,
+  updateOwnerRestaurantProfile,
+  uploadOwnerRestaurantImage,
 } from "./db";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router, superAdminProcedure } from "./_core/trpc";
@@ -373,7 +375,7 @@ export const appRouter = router({
         }
       }),
     createItem: protectedProcedure
-      .input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(2).max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), prepMinutes: z.number().int().min(1).max(1440) }))
+      .input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(2).max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), prepMinutes: z.number().int().min(1).max(1440), imageUrl: z.string().url().max(500).optional() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createOwnerMenuItem(ctx.user.id, input);
@@ -383,6 +385,14 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать блюдо." });
         }
       }),
+    updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(160), address: z.string().trim().min(2).max(240), phone: z.string().trim().min(3).max(32), description: z.string().trim().max(5000).optional(), deliveryConditions: z.string().trim().max(5000).optional() })).mutation(async ({ ctx, input }) => {
+      try { return await updateOwnerRestaurantProfile(ctx.user.id, input); }
+      catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заведению." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить данные заведения." }); }
+    }),
+    uploadImage: protectedProcedure.input(z.object({ kind: z.enum(["item", "logo", "cover"]), targetId: z.number().int().positive().optional(), data: z.string().max(9000000), contentType: z.enum(["image/jpeg", "image/png", "image/webp"]) })).mutation(async ({ ctx, input }) => {
+      try { return await uploadOwnerRestaurantImage(ctx.user.id, input); }
+      catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заведению." }); if (code === "IMAGE_TOO_LARGE") throw new TRPCError({ code: "BAD_REQUEST", message: "Файл слишком большой. Максимум 6 МБ." }); throw new TRPCError({ code: "BAD_REQUEST", message: "Не удалось загрузить изображение." }); }
+    }),
     setAvailability: protectedProcedure
       .input(z.object({ itemId: z.number().int().positive(), available: z.boolean() }))
       .mutation(async ({ ctx, input }) => {

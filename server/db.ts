@@ -21,6 +21,7 @@ import {
 } from "../drizzle/schema";
 import { broadcastToUser, sendExpoPushNotifications } from "./_core/realtime";
 import { ENV } from "./_core/env";
+import { storagePut } from "./storage";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -286,6 +287,7 @@ export async function createOwnerMenuItem(userId: number, input: {
   description?: string;
   priceKopecks: number;
   prepMinutes: number;
+  imageUrl?: string;
 }) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
@@ -312,6 +314,32 @@ export async function upsertOwnerHours(userId: number, input: { dayOfWeek: numbe
     set: { startTime: input.startTime, endTime: input.endTime, isClosed: input.isClosed ? 1 : 0 },
   });
   return { restaurantId, ...input };
+}
+
+export async function updateOwnerRestaurantProfile(userId: number, input: { name: string; address: string; phone: string; description?: string; deliveryConditions?: string }) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  await db!.update(restaurants).set({ name: input.name.trim(), address: input.address.trim(), phone: input.phone.trim(), description: input.description?.trim() || null, deliveryConditions: input.deliveryConditions?.trim() || null }).where(eq(restaurants.id, restaurantId));
+  return { restaurantId };
+}
+
+export async function uploadOwnerRestaurantImage(userId: number, input: { kind: "item" | "logo" | "cover"; targetId?: number; data: string; contentType: string }) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const match = input.data.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match || match[1] !== input.contentType || !/^image\/(jpeg|png|webp)$/.test(input.contentType)) throw new Error("INVALID_IMAGE");
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > 6 * 1024 * 1024) throw new Error("IMAGE_TOO_LARGE");
+  const extension = input.contentType.split("/")[1].replace("jpeg", "jpg");
+  const target = input.kind === "item" ? `menu-items/${restaurantId}/${input.targetId ?? "new"}` : `restaurants/${restaurantId}/${input.kind}`;
+  const uploaded = await storagePut(`${target}.${extension}`, buffer, input.contentType);
+  if (input.kind === "item") {
+    if (!input.targetId) throw new Error("ITEM_REQUIRED");
+    await db!.update(menuItems).set({ imageUrl: uploaded.url }).where(and(eq(menuItems.id, input.targetId), eq(menuItems.restaurantId, restaurantId)));
+  } else {
+    await db!.update(restaurants).set(input.kind === "logo" ? { logoUrl: uploaded.url } : { coverUrl: uploaded.url }).where(eq(restaurants.id, restaurantId));
+  }
+  return { url: uploaded.url, kind: input.kind, targetId: input.targetId ?? null };
 }
 
 export async function getPublicRestaurantMenu(restaurantId: number) {
