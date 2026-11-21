@@ -286,6 +286,7 @@ export async function createOwnerMenuItem(userId: number, input: {
   name: string;
   description?: string;
   priceKopecks: number;
+  portionLabel?: string;
   prepMinutes: number;
   imageUrl?: string;
 }) {
@@ -296,7 +297,7 @@ export async function createOwnerMenuItem(userId: number, input: {
     eq(menuCategories.restaurantId, restaurantId),
   )).limit(1);
   if (!category) throw new Error("MENU_CATEGORY_NOT_FOUND");
-  const result = await db!.insert(menuItems).values({ restaurantId, ...input, name: input.name.trim(), description: input.description?.trim() || null });
+  const result = await db!.insert(menuItems).values({ restaurantId, ...input, name: input.name.trim(), description: input.description?.trim() || null, portionLabel: input.portionLabel?.trim() || null });
   return { id: Number(result[0].insertId), restaurantId };
 }
 

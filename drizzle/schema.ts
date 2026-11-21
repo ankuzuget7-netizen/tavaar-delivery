@@ -116,6 +116,7 @@ export const menuItems = mysqlTable("menu_items", {
   description: text("description"),
   imageUrl: varchar("imageUrl", { length: 500 }),
   priceKopecks: int("priceKopecks").notNull(),
+  portionLabel: varchar("portionLabel", { length: 32 }),
   prepMinutes: int("prepMinutes").default(30).notNull(),
   available: int("available").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

@@ -397,7 +397,7 @@ export const appRouter = router({
         }
       }),
     createItem: protectedProcedure
-      .input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(2).max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), prepMinutes: z.number().int().min(1).max(1440), imageUrl: z.string().url().max(500).optional() }))
+      .input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(2, "Укажите название блюда.").max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), portionLabel: z.string().trim().max(32).optional(), prepMinutes: z.number().int().min(1).max(1440), imageUrl: z.string().url().max(500).optional() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createOwnerMenuItem(ctx.user.id, input);
