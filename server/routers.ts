@@ -155,6 +155,26 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось начать смену номера." });
       }
     }),
+    requestProviderBinding: protectedProcedure.input(z.object({ phone: z.string().trim().min(12).max(16), channel: z.enum(["telegram", "max"]) })).mutation(async ({ ctx, input }) => {
+      try { return await requestPhoneChallenge({ ...input, purpose: "bind_provider", userId: ctx.user.id }); }
+      catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "INVALID_PHONE") throw new TRPCError({ code: "BAD_REQUEST", message: "Введите номер в формате +7XXXXXXXXXX." });
+        if (code === "PHONE_NOT_VERIFIED") throw new TRPCError({ code: "FORBIDDEN", message: "Сначала подтвердите текущий номер телефона." });
+        if (code === "CHALLENGE_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось начать привязку канала." });
+      }
+    }),
+    verifyProviderBinding: protectedProcedure.input(z.object({ challengeId: z.number().int().positive(), code: z.string().regex(/^\d{4}$/) })).mutation(async ({ ctx, input }) => {
+      try { const user = await verifyPhoneChallenge(input.challengeId, input.code, { purpose: "bind_provider", userId: ctx.user.id }); return await createPhoneSession(ctx, user); }
+      catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "INVALID_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Неверный код подтверждения." });
+        if (code === "CODE_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Запросите новый код позже." });
+        if (["CODE_EXPIRED", "CHALLENGE_EXPIRED"].includes(code)) throw new TRPCError({ code: "BAD_REQUEST", message: "Код истёк. Начните привязку заново." });
+        throw new TRPCError({ code: "FORBIDDEN", message: "Сеанс привязки недействителен. Начните заново." });
+      }
+    }),
     verifyPhoneChange: protectedProcedure.input(z.object({ challengeId: z.number().int().positive(), code: z.string().regex(/^\d{4}$/) })).mutation(async ({ ctx, input }) => {
       try {
         const user = await verifyPhoneChallenge(input.challengeId, input.code, { purpose: "change_phone", userId: ctx.user.id });

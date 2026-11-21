@@ -8,7 +8,7 @@ export type ProviderBindingLike = {
 };
 
 export function assertProviderCanStart(input: {
-  purpose: "register" | "login" | "change_phone";
+  purpose: "register" | "login" | "change_phone" | "bind_provider";
   userId?: number;
   providerUserId: string;
   providerChatId: string;
@@ -25,7 +25,7 @@ export function assertProviderCanStart(input: {
 }
 
 export function assertProviderCanComplete(input: {
-  purpose: "register" | "login" | "change_phone";
+  purpose: "register" | "login" | "change_phone" | "bind_provider";
   userId?: number;
   binding?: ProviderBindingLike;
 }) {

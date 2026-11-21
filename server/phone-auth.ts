@@ -12,7 +12,7 @@ const RESEND_INTERVAL_MS = 60 * 1000;
 const MAX_CODE_ATTEMPTS = 5;
 const PHONE_RE = /^\+7\d{10}$/;
 
-export type PhonePurpose = "register" | "login" | "change_phone";
+export type PhonePurpose = "register" | "login" | "change_phone" | "bind_provider";
 
 export function normalizePhone(value: string) {
   const compact = value.replace(/[\s()-]/g, "");
@@ -56,11 +56,12 @@ export async function requestPhoneChallenge(input: { phone: string; channel: Pho
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const phone = normalizePhone(input.phone);
-  if (input.purpose === "change_phone" && !input.userId) throw new Error("AUTH_REQUIRED");
+  if (["change_phone", "bind_provider"].includes(input.purpose) && !input.userId) throw new Error("AUTH_REQUIRED");
   if (input.purpose === "register" && (!input.name?.trim() || !input.acceptTerms || !input.acceptPrivacy)) throw new Error("CONSENTS_REQUIRED");
   const [existing] = await db.select({ id: users.id, phoneVerifiedAt: users.phoneVerifiedAt }).from(users).where(eq(users.phone, phone)).limit(1);
   if (input.purpose === "register" && existing) throw new Error("PHONE_ALREADY_REGISTERED");
   if (input.purpose === "change_phone" && existing) throw new Error("PHONE_ALREADY_REGISTERED");
+  if (input.purpose === "bind_provider" && (!existing || existing.id !== input.userId || !existing.phoneVerifiedAt)) throw new Error("PHONE_NOT_VERIFIED");
   if (input.purpose === "login" && (!existing || !existing.phoneVerifiedAt)) throw new Error("PHONE_NOT_REGISTERED");
   const [recent] = await db.select({ id: phoneAuthChallenges.id }).from(phoneAuthChallenges).where(and(eq(phoneAuthChallenges.phone, phone), eq(phoneAuthChallenges.channel, input.channel), eq(phoneAuthChallenges.purpose, input.purpose), isNull(phoneAuthChallenges.consumedAt), gt(phoneAuthChallenges.createdAt, new Date(Date.now() - RESEND_INTERVAL_MS)))).limit(1);
   if (recent) throw new Error("CHALLENGE_TOO_SOON");
@@ -164,6 +165,12 @@ export async function verifyPhoneChallenge(challengeId: number, code: string, op
       if (existing) throw new Error("PHONE_ALREADY_REGISTERED");
       await tx.update(users).set({ phone: row.phone, phoneVerifiedAt: now, loginMethod: row.channel, authVersion: sql`${users.authVersion} + 1` }).where(eq(users.id, row.userId));
       if (!binding) await tx.insert(authProviderBindings).values({ userId: row.userId, channel: row.channel, providerUserId: row.providerUserId!, providerChatId: row.providerChatId, verifiedAt: now });
+      const [updated] = await tx.select().from(users).where(eq(users.id, row.userId)).limit(1);
+      user = updated;
+    } else if (row.purpose === "bind_provider") {
+      if (!row.userId || !options?.userId || row.userId !== options.userId || !existing || existing.id !== row.userId || !existing.phoneVerifiedAt) throw new Error("CHALLENGE_NOT_ALLOWED");
+      if (!binding) await tx.insert(authProviderBindings).values({ userId: row.userId, channel: row.channel, providerUserId: row.providerUserId!, providerChatId: row.providerChatId, verifiedAt: now });
+      await tx.update(users).set({ loginMethod: row.channel, lastSignedIn: now }).where(eq(users.id, row.userId));
       const [updated] = await tx.select().from(users).where(eq(users.id, row.userId)).limit(1);
       user = updated;
     } else {
