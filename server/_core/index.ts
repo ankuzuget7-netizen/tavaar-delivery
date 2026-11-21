@@ -35,7 +35,8 @@ async function startServer() {
   const botWebhook = (channel: PhoneChannel) => async (req: express.Request, res: express.Response) => {
     const expected = channel === "telegram" ? process.env.TG_BOT_WEBHOOK_SECRET : process.env.MAX_BOT_WEBHOOK_SECRET;
     const headerName = channel === "telegram" ? "x-telegram-bot-api-secret-token" : "x-max-bot-api-secret";
-    if (expected && req.header(headerName) !== expected) {
+    if (!expected || req.header(headerName) !== expected) {
+      if (!expected) console.error("[Bots] webhook secret is not configured", { channel });
       res.status(401).json({ ok: false });
       return;
     }

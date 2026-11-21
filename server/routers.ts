@@ -97,9 +97,9 @@ export const appRouter = router({
       } catch (error) {
         const code = error instanceof Error ? error.message : "";
         if (input.channel === "max") console.error("[Auth] MAX phone challenge failed", { purpose: input.purpose, errorCode: code || "UNKNOWN" });
-        if (code === "REGISTRATION_MAX_ONLY") throw new TRPCError({ code: "BAD_REQUEST", message: "Регистрация через Telegram временно недоступна. Используйте MAX." });
         if (code === "INVALID_PHONE") throw new TRPCError({ code: "BAD_REQUEST", message: "Введите номер в формате +7XXXXXXXXXX." });
         if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован. Войдите через подтверждение кода." });
+        if (code === "PHONE_NOT_REGISTERED") throw new TRPCError({ code: "UNAUTHORIZED", message: "Номер не зарегистрирован или не подтверждён." });
         if (code === "CONSENTS_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Нужно принять пользовательское соглашение и политику конфиденциальности." });
         if (code === "CHALLENGE_TOO_SOON") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Повторная отправка доступна через минуту." });
         if (["BOT_NOT_CONFIGURED", "BOT_AUTH_FAILED", "BOT_PROVIDER_ERROR", "BOT_USERNAME_UNAVAILABLE", "MAX_TLS_CA_MISSING", "MAX_TIMEOUT", "MAX_PROVIDER_UNAVAILABLE"].includes(code)) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Бот MAX временно недоступен. Повторите попытку через минуту." });
@@ -118,6 +118,7 @@ export const appRouter = router({
         if (code === "INVALID_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Неверный код подтверждения." });
         if (code === "CODE_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Запросите новый код позже." });
         if (code === "CODE_EXPIRED" || code === "CHALLENGE_EXPIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Код истёк. Начните подтверждение номера заново." });
+        if (code === "PROVIDER_NOT_BOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Этот Telegram/MAX аккаунт не привязан к данному профилю." });
         if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован." });
         if (code === "PHONE_NOT_VERIFIED") throw new TRPCError({ code: "UNAUTHORIZED", message: "Номер не подтверждён для входа." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось подтвердить номер." });
@@ -163,6 +164,7 @@ export const appRouter = router({
         if (code === "INVALID_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Неверный код подтверждения." });
         if (code === "CODE_RATE_LIMITED") throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Слишком много попыток. Запросите новый код позже." });
         if (["CODE_EXPIRED", "CHALLENGE_EXPIRED"].includes(code)) throw new TRPCError({ code: "BAD_REQUEST", message: "Код истёк. Начните смену номера заново." });
+        if (["PROVIDER_NOT_BOUND", "PROVIDER_ALREADY_BOUND", "CHALLENGE_NOT_ALLOWED"].includes(code)) throw new TRPCError({ code: "FORBIDDEN", message: "Сеанс подтверждения не соответствует аккаунту. Начните заново." });
         if (code === "PHONE_ALREADY_REGISTERED") throw new TRPCError({ code: "CONFLICT", message: "Этот номер уже зарегистрирован в другом аккаунте." });
         if (code === "CHALLENGE_NOT_ALLOWED" || code === "PHONE_NOT_VERIFIED") throw new TRPCError({ code: "FORBIDDEN", message: "Сеанс подтверждения недействителен. Начните заново." });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить номер." });

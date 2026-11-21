@@ -288,6 +288,22 @@ export const phoneAuthChallenges = mysqlTable("phone_auth_challenges", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const authProviderBindings = mysqlTable("auth_provider_bindings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  channel: mysqlEnum("channel", ["telegram", "max"]).notNull(),
+  providerUserId: varchar("providerUserId", { length: 128 }).notNull(),
+  providerChatId: varchar("providerChatId", { length: 128 }),
+  verifiedAt: timestamp("verifiedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  providerIdentity: uniqueIndex("auth_provider_bindings_channel_provider_user").on(table.channel, table.providerUserId),
+  userChannel: uniqueIndex("auth_provider_bindings_user_channel").on(table.userId, table.channel),
+}));
+
+export type AuthProviderBinding = typeof authProviderBindings.$inferSelect;
+
 export const deliveryAddresses = mysqlTable("delivery_addresses", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),
