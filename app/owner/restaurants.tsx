@@ -1,0 +1,47 @@
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+
+import { ScreenContainer } from "@/components/screen-container";
+import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
+
+type RestaurantStatus = "active" | "suspended" | "blocked";
+const statusLabels: Record<RestaurantStatus, string> = { active: "Активно", suspended: "Приостановлено", blocked: "Заблокировано" };
+
+export default function OwnerRestaurantsScreen() {
+  const colors = useColors();
+  const me = trpc.auth.me.useQuery();
+  const restaurants = trpc.ownerAdmin.restaurants.useQuery(undefined, { enabled: me.data?.role === "super_admin" });
+  const update = trpc.ownerAdmin.updateRestaurant.useMutation({ onSuccess: () => restaurants.refetch() });
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = useMemo(() => (restaurants.data ?? []).find((item) => item.id === selectedId) ?? null, [restaurants.data, selectedId]);
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("ru-RU");
+    if (!normalized) return restaurants.data ?? [];
+    return (restaurants.data ?? []).filter((item) => [item.name, item.type, item.address, item.phone].join(" ").toLocaleLowerCase("ru-RU").includes(normalized));
+  }, [restaurants.data, query]);
+
+  if (me.isLoading || restaurants.isLoading) return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><Text style={[styles.center, { color: colors.muted }]}>Загружаем заведения…</Text></ScreenContainer>;
+  if (me.data?.role !== "super_admin") return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><Text style={[styles.center, { color: colors.error }]}>Доступ только для Super Admin.</Text></ScreenContainer>;
+
+  const changeStatus = (status: RestaurantStatus) => {
+    if (!selected) return;
+    update.mutate({ id: selected.id, name: selected.name, type: selected.type, address: selected.address, phone: selected.phone, description: selected.description ?? undefined, status });
+  };
+
+  return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content}>
+    <Pressable onPress={() => router.back()}><Text style={[styles.back, { color: colors.primary }]}>← Назад в панель</Text></Pressable>
+    <Text style={[styles.kicker, { color: colors.primary }]}>КАТАЛОГ И ПАРТНЁРЫ</Text>
+    <Text style={[styles.title, { color: colors.foreground }]}>Заведения</Text>
+    <Text style={[styles.subtitle, { color: colors.muted }]}>Изменения статуса сохраняются на сервере и влияют на публичный каталог.</Text>
+    <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}><Ionicons name="search-outline" size={18} color={colors.muted} /><TextInput value={query} onChangeText={setQuery} placeholder="Поиск по названию, адресу или телефону" placeholderTextColor={colors.muted} style={[styles.searchInput, { color: colors.foreground }]} /></View>
+    {restaurants.isError ? <Text style={[styles.error, { color: colors.error }]}>Не удалось загрузить реальные данные заведений.</Text> : null}
+    {filtered.length === 0 ? <View style={[styles.empty, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.emptyTitle, { color: colors.foreground }]}>Заведения не найдены</Text><Text style={[styles.emptyBody, { color: colors.muted }]}>Измените поисковый запрос или одобрите новую заявку.</Text></View> : filtered.map((item) => <Pressable key={item.id} onPress={() => setSelectedId(item.id)} style={[styles.card, { backgroundColor: selected?.id === item.id ? colors.primary + "12" : colors.surface, borderColor: selected?.id === item.id ? colors.primary : colors.border }]}><View style={styles.cardTop}><View style={{ flex: 1 }}><Text style={[styles.cardTitle, { color: colors.foreground }]}>{item.name}</Text><Text style={[styles.meta, { color: colors.muted }]}>#{item.id} · {item.type}</Text></View><Text style={[styles.status, { color: item.status === "active" ? colors.success : item.status === "blocked" ? colors.error : colors.warning }]}>{statusLabels[item.status]}</Text></View><Text style={[styles.detail, { color: colors.foreground }]}>{item.address}</Text><Text style={[styles.detail, { color: colors.muted }]}>{item.phone}</Text>{item.description ? <Text style={[styles.description, { color: colors.muted }]} numberOfLines={2}>{item.description}</Text> : null}</Pressable>)}
+    {selected ? <View style={[styles.editor, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.editorTitle, { color: colors.foreground }]}>Управление заведением</Text><Text style={[styles.editorMeta, { color: colors.muted }]}>{selected.name} · #{selected.id}</Text><Text style={[styles.label, { color: colors.foreground }]}>Статус</Text><View style={styles.actions}>{(["active", "suspended", "blocked"] as RestaurantStatus[]).map((status) => <Pressable key={status} disabled={update.isPending || selected.status === status} onPress={() => changeStatus(status)} style={[styles.statusButton, { backgroundColor: selected.status === status ? colors.primary : colors.background, borderColor: selected.status === status ? colors.primary : colors.border }]}><Text style={{ color: selected.status === status ? "#FFF8F1" : colors.foreground, fontWeight: "800", fontSize: 12 }}>{statusLabels[status]}</Text></Pressable>)}</View>{update.error ? <Text style={[styles.error, { color: colors.error }]}>{update.error.message}</Text> : null}<Text style={[styles.note, { color: colors.muted }]}>Просмотр меню, фотографий и графика доступен в кабинете партнёра; операции здесь проходят через server-side ownerAdmin procedures.</Text></View> : null}
+  </ScrollView></ScreenContainer>;
+}
+
+const styles = StyleSheet.create({ screen: { flex: 1 }, content: { padding: 24, paddingBottom: 45, gap: 12, maxWidth: 920, width: "100%", alignSelf: "center" }, center: { textAlign: "center", marginTop: 40 }, back: { fontSize: 14, fontWeight: "800", marginBottom: 8 }, kicker: { fontSize: 10, letterSpacing: 1.6, fontWeight: "900" }, title: { fontSize: 31, fontWeight: "900" }, subtitle: { fontSize: 14, lineHeight: 20, marginBottom: 4 }, search: { minHeight: 48, borderWidth: 1, borderRadius: 14, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 8 }, searchInput: { flex: 1, minWidth: 0, fontSize: 13 }, card: { borderWidth: 1, borderRadius: 18, padding: 15, gap: 6 }, cardTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 }, cardTitle: { fontSize: 17, fontWeight: "900" }, meta: { fontSize: 12, marginTop: 3 }, status: { fontSize: 11, fontWeight: "900", maxWidth: 120, textAlign: "right" }, detail: { fontSize: 13 }, description: { fontSize: 12, lineHeight: 17 }, editor: { borderWidth: 1, borderRadius: 18, padding: 16, gap: 9, marginTop: 4 }, editorTitle: { fontSize: 18, fontWeight: "900" }, editorMeta: { fontSize: 13 }, label: { fontSize: 12, fontWeight: "900", marginTop: 5 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, statusButton: { minHeight: 40, borderWidth: 1, borderRadius: 11, paddingHorizontal: 11, alignItems: "center", justifyContent: "center" }, note: { fontSize: 12, lineHeight: 18, marginTop: 4 }, empty: { borderWidth: 1, borderRadius: 18, padding: 25, gap: 6 }, emptyTitle: { fontSize: 17, fontWeight: "900" }, emptyBody: { fontSize: 13 }, error: { fontSize: 13, lineHeight: 18 } });
