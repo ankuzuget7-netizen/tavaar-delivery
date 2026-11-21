@@ -5,14 +5,34 @@ import { getDb } from "./db";
 export async function getOwnerOverview() {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  const [[userCount], [restaurantCount], [pendingCount], [orderCount], [turnover]] = await Promise.all([
+  const [[userCount], [newUserCount], [restaurantCount], [approvedRestaurantCount], [blockedRestaurantCount], [pendingCount], [rejectedApplicationCount], [orderCount], [todayOrderCount], [weekOrderCount], [monthOrderCount], [turnover]] = await Promise.all([
     db.select({ value: sql<number>`count(*)` }).from(users),
+    db.select({ value: sql<number>`coalesce(sum(case when ${users.createdAt} >= current_timestamp() - interval 30 day then 1 else 0 end), 0)` }).from(users),
     db.select({ value: sql<number>`count(*)` }).from(restaurants),
+    db.select({ value: sql<number>`coalesce(sum(case when ${restaurants.status} = 'active' then 1 else 0 end), 0)` }).from(restaurants),
+    db.select({ value: sql<number>`coalesce(sum(case when ${restaurants.status} in ('blocked', 'suspended') then 1 else 0 end), 0)` }).from(restaurants),
     db.select({ value: sql<number>`count(*)` }).from(restaurantApplications).where(eq(restaurantApplications.status, "pending")),
+    db.select({ value: sql<number>`coalesce(sum(case when ${restaurantApplications.status} = 'rejected' then 1 else 0 end), 0)` }).from(restaurantApplications),
     db.select({ value: sql<number>`count(*)` }).from(orders),
+    db.select({ value: sql<number>`coalesce(sum(case when ${orders.createdAt} >= current_date() then 1 else 0 end), 0)` }).from(orders),
+    db.select({ value: sql<number>`coalesce(sum(case when ${orders.createdAt} >= current_timestamp() - interval 7 day then 1 else 0 end), 0)` }).from(orders),
+    db.select({ value: sql<number>`coalesce(sum(case when ${orders.createdAt} >= current_timestamp() - interval 30 day then 1 else 0 end), 0)` }).from(orders),
     db.select({ value: sql<number>`coalesce(sum(${orders.totalKopecks}), 0)` }).from(orders),
   ]);
-  return { users: Number(userCount.value), restaurants: Number(restaurantCount.value), pendingApplications: Number(pendingCount.value), orders: Number(orderCount.value), turnoverKopecks: Number(turnover.value) };
+  return {
+    users: Number(userCount.value),
+    newUsers30d: Number(newUserCount.value),
+    restaurants: Number(restaurantCount.value),
+    approvedRestaurants: Number(approvedRestaurantCount.value),
+    blockedRestaurants: Number(blockedRestaurantCount.value),
+    pendingApplications: Number(pendingCount.value),
+    rejectedApplications: Number(rejectedApplicationCount.value),
+    orders: Number(orderCount.value),
+    ordersToday: Number(todayOrderCount.value),
+    ordersThisWeek: Number(weekOrderCount.value),
+    ordersThisMonth: Number(monthOrderCount.value),
+    turnoverKopecks: Number(turnover.value),
+  };
 }
 
 export async function listOwnerUsers() {
