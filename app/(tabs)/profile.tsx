@@ -20,6 +20,7 @@ export default function ProfileScreen() {
   const user = profile.data ?? me.data;
   const verified = Boolean((user as { phoneVerifiedAt?: Date | null }).phoneVerifiedAt);
   const initials = (user.name || "АД").slice(0, 2).toUpperCase();
+  const isRestaurantOwner = Boolean(me.data.access?.isRestaurantOwner);
   return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.titleRow}><View><Text style={[styles.kicker, { color: colors.primary }]}>ЛИЧНЫЙ КАБИНЕТ</Text><Text style={[styles.title, { color: colors.foreground }]}>Профиль</Text></View><Pressable onPress={() => setMenuOpen(true)} accessibilityLabel="Открыть меню ещё" style={[styles.menuButton, { backgroundColor: colors.surface, borderColor: colors.border }]}><Ionicons name="menu-outline" size={22} color={colors.primary} /></Pressable></View>
     <SurfaceCard style={styles.account}><View style={[styles.avatar, { backgroundColor: colors.primary }]}><Text style={styles.avatarText}>{initials}</Text></View><View style={{ flex: 1 }}><Text style={[styles.accountName, { color: colors.foreground }]}>{user.name || "Покупатель"}</Text><Text style={[styles.accountContact, { color: colors.muted }]}>{user.phone || user.email || "Телефон не указан"}</Text><View style={styles.verifyRow}><Ionicons name={verified ? "checkmark-circle" : "alert-circle"} size={14} color={verified ? colors.success : colors.warning} /><Text style={[styles.verify, { color: verified ? colors.success : colors.warning }]}>{verified ? "Телефон подтверждён" : "Телефон не подтверждён"}</Text></View></View><Ionicons name="ellipsis-horizontal" size={20} color={colors.muted} /></SurfaceCard>
@@ -28,8 +29,10 @@ export default function ProfileScreen() {
     <ActionRow icon="heart-outline" title="Избранное" body="Сохранённые заведения и блюда" onPress={() => router.push("/account/favorites" as never)} colors={colors} />
     <ActionRow icon="location-outline" title="Адреса доставки" body="Добавление и основной адрес" onPress={() => router.push("/account/addresses" as never)} colors={colors} />
     {me.data.role === "super_admin" ? <><Text style={[styles.section, { color: colors.foreground }]}>Управление</Text><ActionRow icon="shield-checkmark-outline" title="Управление платформой" body="Заведения, заявки, пользователи и заказы" onPress={() => router.push("/owner" as never)} colors={colors} /></> : null}
-    <Text style={[styles.section, { color: colors.foreground }]}>Для бизнеса</Text>
-    <ActionRow icon="storefront-outline" title="Стать партнёром" body="Подключите ресторан, кафе или точку питания" onPress={() => router.push("/partner/apply" as never)} colors={colors} />
+    <Text style={[styles.section, { color: colors.foreground }]}>{isRestaurantOwner ? "Моё заведение" : "Для бизнеса"}</Text>
+    {isRestaurantOwner
+      ? <ActionRow icon="storefront-outline" title="Управление заведением" body="Меню, заказы, фотографии и настройки бизнеса" onPress={() => router.push("/partner/dashboard" as never)} colors={colors} />
+      : <ActionRow icon="storefront-outline" title="Стать партнёром" body="Подключите ресторан, кафе или точку питания" onPress={() => router.push("/partner/apply" as never)} colors={colors} />}
     <Text style={[styles.section, { color: colors.foreground }]}>Помощь</Text>
     <ActionRow icon="receipt-outline" title="Мои заказы" body="История и статусы заказов" onPress={() => router.push("/(tabs)/orders" as never)} colors={colors} />
     <ActionRow icon="chatbubble-ellipses-outline" title="Поддержка" body="FAQ и обращения" onPress={() => router.push("/(tabs)/support" as never)} colors={colors} />
