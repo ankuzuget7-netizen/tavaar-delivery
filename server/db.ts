@@ -23,6 +23,8 @@ import { broadcastToUser, sendExpoPushNotifications } from "./_core/realtime";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 
+const NEW_ORDER_NOTIFICATION_TITLE = "Новый заказ";
+
 let _db: ReturnType<typeof drizzle> | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
@@ -343,16 +345,47 @@ export async function uploadOwnerRestaurantImage(userId: number, input: { kind: 
   return { url: uploaded.url, kind: input.kind, targetId: input.targetId ?? null };
 }
 
+function timeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function getRestaurantOpenStatus(hours: Array<{ dayOfWeek: number; startTime: string; endTime: string; isClosed: number }>) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Krasnoyarsk",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  const weekdayIndex = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(weekday ?? "");
+  const currentMinutes = Number(parts.find((part) => part.type === "hour")?.value ?? 0) * 60 + Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  const today = hours.find((item) => item.dayOfWeek === weekdayIndex);
+  const yesterday = hours.find((item) => item.dayOfWeek === (weekdayIndex + 6) % 7);
+  const isWithin = (item: typeof today, minutes: number) => {
+    if (!item || item.isClosed) return false;
+    const start = timeToMinutes(item.startTime);
+    const end = timeToMinutes(item.endTime);
+    return end > start ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+  };
+  const overnightYesterday = yesterday && yesterday.endTime < yesterday.startTime;
+  const isOpen = isWithin(today, currentMinutes) || Boolean(overnightYesterday && currentMinutes < timeToMinutes(yesterday!.endTime));
+  return { isOpen, hours };
+}
+
 export async function getPublicRestaurantMenu(restaurantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const [restaurant] = await db.select().from(restaurants).where(and(eq(restaurants.id, restaurantId), eq(restaurants.status, "active"))).limit(1);
   if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
-  const [categories, items] = await Promise.all([
+  const [categories, items, hours] = await Promise.all([
     db.select().from(menuCategories).where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id),
     db.select().from(menuItems).where(and(eq(menuItems.restaurantId, restaurantId), eq(menuItems.available, 1))).orderBy(menuItems.id),
+    db.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek),
   ]);
-  return { restaurant, categories, items };
+  return { restaurant, categories, items, hours, openStatus: getRestaurantOpenStatus(hours) };
 }
 
 export async function createCustomerOrder(userId: number, input: {
@@ -390,13 +423,13 @@ export async function createCustomerOrder(userId: number, input: {
     await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));
     await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });
     const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, input.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
-    if (owners.length > 0) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: input.restaurantId, orderId, type: "new_order" as const, title: "Новый заказ", body: `Заказ #${orderId} на ${(totalKopecks / 100).toFixed(2)} ₽ ожидает подтверждения.` })));
+    if (owners.length > 0) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: input.restaurantId, orderId, type: "new_order" as const, title: NEW_ORDER_NOTIFICATION_TITLE, body: `Заказ #${orderId} на ${(totalKopecks / 100).toFixed(2)} ₽ ожидает подтверждения.` })));
     const ownerTokens = owners.length ? await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(inArray(pushTokens.userId, owners.map((owner) => owner.userId)), eq(pushTokens.active, 1))) : [];
     return { orderId, totalKopecks, status: "placed" as const, ownerUserIds: owners.map((owner) => owner.userId), ownerTokens: ownerTokens.map((item) => item.token), replayed: false };
   });
   if (result.replayed) return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status, replayed: true };
   for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.created", orderId: result.orderId, status: result.status });
-  void sendExpoPushNotifications(result.ownerTokens, { title: "Новый заказ", body: `Заказ #${result.orderId} ожидает подтверждения.`, data: { orderId: result.orderId, type: "new_order" } });
+  void sendExpoPushNotifications(result.ownerTokens, { title: NEW_ORDER_NOTIFICATION_TITLE, body: `Заказ #${result.orderId} ожидает подтверждения.`, data: { orderId: result.orderId, type: "new_order" } });
   return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status, replayed: false };
 }
 
