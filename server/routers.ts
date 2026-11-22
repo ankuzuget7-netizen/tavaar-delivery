@@ -12,6 +12,10 @@ import {
   updateOwnerMenuItem,
   deleteOwnerMenuItem,
   getRestaurantOwnerSummary,
+  addOwnerCourier,
+  updateOwnerCourier,
+  setOwnerCourierStatus,
+  deleteOwnerCourier,
   createCustomerOrder,
   getCustomerOrderDetails,
   cancelCustomerOrder,
@@ -28,6 +32,7 @@ import {
   registerDeliveryDriver,
   getDriverProfile,
   listOwnerDrivers,
+  listOwnerCouriers,
   assignDriverToOrder,
   listDriverAssignments,
   updateDriverAssignmentStatus,
@@ -370,6 +375,26 @@ export const appRouter = router({
     summary: protectedProcedure.query(async ({ ctx }) => {
       try { return await getRestaurantOwnerSummary(ctx.user.id); }
       catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к сводке заведения." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить сводку." }); }
+    }),
+    couriers: protectedProcedure.query(async ({ ctx }) => {
+      try { return await listOwnerCouriers(ctx.user.id); }
+      catch { throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к курьерам заведения." }); }
+    }),
+    addCourier: protectedProcedure.input(z.object({ phone: z.string().trim().min(7).max(32), displayName: z.string().trim().min(2).max(120), vehicle: z.string().trim().max(120).optional() })).mutation(async ({ ctx, input }) => {
+      try { return await addOwnerCourier(ctx.user.id, input); }
+      catch (error) { if (error instanceof Error && error.message === "COURIER_USER_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Пользователь с таким телефоном не зарегистрирован. Сначала курьер должен создать аккаунт." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось добавить курьера." }); }
+    }),
+    updateCourier: protectedProcedure.input(z.object({ id: z.number().int().positive(), phone: z.string().trim().min(7).max(32), displayName: z.string().trim().min(2).max(120), vehicle: z.string().trim().max(120).optional() })).mutation(async ({ ctx, input }) => {
+      try { const { id, ...courier } = input; return await updateOwnerCourier(ctx.user.id, id, courier); }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "Курьер не найден в вашем заведении." }); }
+    }),
+    setCourierStatus: protectedProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["available", "offline", "suspended"]) })).mutation(async ({ ctx, input }) => {
+      try { return await setOwnerCourierStatus(ctx.user.id, input.id, input.status); }
+      catch { throw new TRPCError({ code: "NOT_FOUND", message: "Курьер не найден в вашем заведении." }); }
+    }),
+    deleteCourier: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      try { return await deleteOwnerCourier(ctx.user.id, input.id); }
+      catch (error) { if (error instanceof Error && error.message === "COURIER_HAS_ACTIVE_ORDER") throw new TRPCError({ code: "CONFLICT", message: "Нельзя удалить курьера с активной доставкой." }); throw new TRPCError({ code: "NOT_FOUND", message: "Курьер не найден в вашем заведении." }); }
     }),
     drivers: protectedProcedure.query(async ({ ctx }) => {
       try { return await listOwnerDrivers(ctx.user.id); }

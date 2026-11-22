@@ -652,10 +652,57 @@ export async function getDriverProfile(userId: number) {
   return driver;
 }
 
+export async function addOwnerCourier(userId: number, input: { phone: string; displayName: string; vehicle?: string }) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const normalizedPhone = input.phone.trim();
+  const [courierUser] = await db!.select({ id: users.id }).from(users).where(eq(users.phone, normalizedPhone)).limit(1);
+  if (!courierUser) throw new Error("COURIER_USER_NOT_FOUND");
+  await db!.insert(restaurantMembers).values({ restaurantId, userId: courierUser.id, role: "staff" }).onDuplicateKeyUpdate({ set: { role: "staff" } });
+  await db!.insert(deliveryDrivers).values({ userId: courierUser.id, displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, status: "available" }).onDuplicateKeyUpdate({ set: { displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, status: "available", updatedAt: new Date() } });
+  const [driver] = await db!.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, courierUser.id)).limit(1);
+  return driver;
+}
+
+export async function updateOwnerCourier(userId: number, driverId: number, input: { displayName: string; phone: string; vehicle?: string }) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [driver] = await db!.select({ driver: deliveryDrivers }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.id, driverId)).limit(1).then((rows) => rows.map((row) => row.driver));
+  if (!driver) throw new Error("COURIER_NOT_FOUND");
+  await db!.update(deliveryDrivers).set({ displayName: input.displayName.trim(), phone: input.phone.trim(), vehicle: input.vehicle?.trim() || null }).where(eq(deliveryDrivers.id, driverId));
+  return { id: driverId, updated: true };
+}
+
+export async function setOwnerCourierStatus(userId: number, driverId: number, status: "available" | "offline" | "suspended") {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [driver] = await db!.select({ id: deliveryDrivers.id }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.id, driverId)).limit(1);
+  if (!driver) throw new Error("COURIER_NOT_FOUND");
+  await db!.update(deliveryDrivers).set({ status }).where(eq(deliveryDrivers.id, driverId));
+  return { id: driverId, status };
+}
+
+export async function deleteOwnerCourier(userId: number, driverId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [driver] = await db!.select({ id: deliveryDrivers.id, userId: deliveryDrivers.userId }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.id, driverId)).limit(1);
+  if (!driver) throw new Error("COURIER_NOT_FOUND");
+  const [assignment] = await db!.select({ id: orderDriverAssignments.id }).from(orderDriverAssignments).where(and(eq(orderDriverAssignments.driverId, driverId), inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]))).limit(1);
+  if (assignment) throw new Error("COURIER_HAS_ACTIVE_ORDER");
+  await db!.delete(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.userId, driver.userId), eq(restaurantMembers.role, "staff")));
+  return { id: driverId, deleted: true };
+}
+
 export async function listOwnerDrivers(userId: number) {
   const db = await getDb();
-  await getOwnedRestaurantId(db, userId);
-  return db!.select().from(deliveryDrivers).where(eq(deliveryDrivers.status, "available")).orderBy(deliveryDrivers.displayName);
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  return db!.select({ driver: deliveryDrivers }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.status, "available")).orderBy(deliveryDrivers.displayName).then((rows) => rows.map((row) => row.driver));
+}
+
+export async function listOwnerCouriers(userId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  return db!.select({ driver: deliveryDrivers }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).orderBy(deliveryDrivers.displayName).then((rows) => rows.map((row) => row.driver));
 }
 
 export async function assignDriverToOrder(userId: number, orderId: number, driverId: number) {
@@ -665,7 +712,7 @@ export async function assignDriverToOrder(userId: number, orderId: number, drive
     const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId))).limit(1);
     if (!order) throw new Error("ORDER_NOT_FOUND");
     if (order.status !== "ready") throw new Error("ORDER_NOT_READY");
-    const [driver] = await tx.select().from(deliveryDrivers).where(and(eq(deliveryDrivers.id, driverId), eq(deliveryDrivers.status, "available"))).limit(1);
+    const [driver] = await tx.select({ driver: deliveryDrivers }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(and(eq(deliveryDrivers.id, driverId), eq(deliveryDrivers.status, "available"))).limit(1).then((rows) => rows.map((row) => row.driver));
     if (!driver) throw new Error("DRIVER_NOT_AVAILABLE");
     const [existing] = await tx.select().from(orderDriverAssignments).where(eq(orderDriverAssignments.orderId, orderId)).limit(1);
     if (existing && existing.status !== "cancelled") throw new Error("DRIVER_ALREADY_ASSIGNED");
