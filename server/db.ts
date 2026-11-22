@@ -267,12 +267,17 @@ async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userI
 export async function getRestaurantOwnerDashboard(userId: number) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
-  const [[restaurant], categories, items, hours] = await Promise.all([
+  const [[restaurant], categories, items] = await Promise.all([
     db!.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1),
     db!.select().from(menuCategories).where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id),
     db!.select().from(menuItems).where(eq(menuItems.restaurantId, restaurantId)).orderBy(menuItems.id),
-    db!.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek),
   ]);
+  let hours: typeof restaurantHours.$inferSelect[] = [];
+  try {
+    hours = await db!.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek);
+  } catch (error) {
+    console.error("[OwnerDashboard] Failed to load restaurant hours; returning empty schedule", error);
+  }
   return { restaurant, categories, items, hours };
 }
 
