@@ -267,11 +267,35 @@ async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userI
 export async function getRestaurantOwnerDashboard(userId: number) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
-  const [[restaurant], categories, items] = await Promise.all([
-    db!.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1),
+  const [[legacyRestaurant], categories, legacyItems] = await Promise.all([
+    db!.select({
+      id: restaurants.id,
+      applicationId: restaurants.applicationId,
+      name: restaurants.name,
+      type: restaurants.type,
+      address: restaurants.address,
+      phone: restaurants.phone,
+      description: restaurants.description,
+      status: restaurants.status,
+      createdAt: restaurants.createdAt,
+      updatedAt: restaurants.updatedAt,
+    }).from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1),
     db!.select().from(menuCategories).where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id),
-    db!.select().from(menuItems).where(eq(menuItems.restaurantId, restaurantId)).orderBy(menuItems.id),
+    db!.select({
+      id: menuItems.id,
+      restaurantId: menuItems.restaurantId,
+      categoryId: menuItems.categoryId,
+      name: menuItems.name,
+      description: menuItems.description,
+      priceKopecks: menuItems.priceKopecks,
+      prepMinutes: menuItems.prepMinutes,
+      available: menuItems.available,
+      createdAt: menuItems.createdAt,
+      updatedAt: menuItems.updatedAt,
+    }).from(menuItems).where(eq(menuItems.restaurantId, restaurantId)).orderBy(menuItems.id),
   ]);
+  const restaurant = legacyRestaurant ? { ...legacyRestaurant, logoUrl: null as string | null, coverUrl: null as string | null, deliveryConditions: null as string | null } : undefined;
+  const items = legacyItems.map((item) => ({ ...item, imageUrl: null as string | null, portionLabel: null as string | null }));
   let hours: typeof restaurantHours.$inferSelect[] = [];
   try {
     hours = await db!.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek);
