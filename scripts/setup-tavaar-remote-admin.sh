@@ -74,7 +74,7 @@ case "${1:-}" in
     runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && pnpm install --frozen-lockfile"
     runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && pnpm check"
     runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && pnpm build"
-    runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && EXPO_PUBLIC_API_BASE_URL='https://tavaar.online' pnpm exec expo export --platform web --output-dir web-dist"
+    runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && EXPO_PUBLIC_API_BASE_URL='https://tavaar.online' pnpm build:web"
     test -s "$WEB_ROOT/index.html" || fail 'web-dist/index.html missing'
     test -s "$WEB_ROOT/manus-routes.json" || fail 'web-dist/manus-routes.json missing'
     chown -R "$APP_USER:$APP_USER" "$WEB_ROOT"
