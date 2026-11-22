@@ -11,10 +11,18 @@ APP_DIR="/opt/tavaar"
 ENV_FILE="/etc/tavaar.env"
 WRAPPER="/usr/local/sbin/tavaar-deploy"
 SUDOERS="/etc/sudoers.d/tavaar-deploy"
+SSH_CONFIG="/etc/ssh/sshd_config.d/60-tavaar-deploy.conf"
 KEY="${TAVAAR_SSH_PUBLIC_KEY:-}"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 log() { printf '\n[%s] %s\n' "$(date '+%F %T')" "$*"; }
+backup_file() {
+  local path="$1"
+  [[ ! -L "$path" ]] || fail "Refusing to replace symlink: $path"
+  if [[ -e "$path" ]]; then
+    cp -a -- "$path" "${path}.bak.$(date '+%Y%m%d%H%M%S%N')"
+  fi
+}
 
 [[ "$(id -u)" == 0 ]] || fail 'Запустите скрипт от root через консоль хостинга.'
 [[ -n "$KEY" ]] || fail 'Не задан TAVAAR_SSH_PUBLIC_KEY. Используйте только публичный ssh-ed25519 ключ.'
@@ -28,11 +36,17 @@ if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
 fi
 passwd --lock "$DEPLOY_USER" >/dev/null 2>&1 || true
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0700 "/home/$DEPLOY_USER/.ssh"
-printf '%s\n' "$KEY" > "/home/$DEPLOY_USER/.ssh/authorized_keys"
-chown "$DEPLOY_USER:$DEPLOY_USER" "/home/$DEPLOY_USER/.ssh/authorized_keys"
-chmod 0600 "/home/$DEPLOY_USER/.ssh/authorized_keys"
+AUTHORIZED_KEYS="/home/$DEPLOY_USER/.ssh/authorized_keys"
+[[ ! -L "$AUTHORIZED_KEYS" ]] || fail "Refusing to modify symlink: $AUTHORIZED_KEYS"
+touch "$AUTHORIZED_KEYS"
+if ! grep -Fqx -- "$KEY" "$AUTHORIZED_KEYS"; then
+  printf '%s\n' "$KEY" >> "$AUTHORIZED_KEYS"
+fi
+chown "$DEPLOY_USER:$DEPLOY_USER" "$AUTHORIZED_KEYS"
+chmod 0600 "$AUTHORIZED_KEYS"
 
 log 'Создаём root-owned безопасный wrapper для обновления Tavaar'
+backup_file "$WRAPPER"
 cat > "$WRAPPER" <<'WRAPPER'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -87,6 +101,7 @@ chown root:root "$WRAPPER"
 chmod 0755 "$WRAPPER"
 
 log 'Ограничиваем sudo только безопасным wrapper'
+backup_file "$SUDOERS"
 cat > "$SUDOERS" <<EOF
 Defaults:$DEPLOY_USER !authenticate
 $DEPLOY_USER ALL=(root) NOPASSWD: $WRAPPER
@@ -96,7 +111,8 @@ visudo -cf "$SUDOERS"
 
 log 'Усиливаем SSH без отключения текущего root-сеанса'
 mkdir -p /etc/ssh/sshd_config.d
-cat > /etc/ssh/sshd_config.d/60-tavaar-deploy.conf <<EOF
+backup_file "$SSH_CONFIG"
+cat > "$SSH_CONFIG" <<EOF
 # Managed for Tavaar deploy user. Existing users and root policy are preserved.
 Match User $DEPLOY_USER
     PasswordAuthentication no

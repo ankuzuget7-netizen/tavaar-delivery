@@ -22,6 +22,7 @@ import {
 import { broadcastToUser, sendExpoPushNotifications } from "./_core/realtime";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
+import { RESTAURANT_OPERATOR_ROLES } from "./membership-policy";
 
 const NEW_ORDER_NOTIFICATION_TITLE = "Новый заказ";
 
@@ -50,7 +51,7 @@ export async function getUserAccessProfile(userId: number) {
     .innerJoin(restaurants, eq(restaurants.id, restaurantMembers.restaurantId))
     .where(and(
       eq(restaurantMembers.userId, userId),
-      inArray(restaurantMembers.role, ["owner", "manager"]),
+      inArray(restaurantMembers.role, RESTAURANT_OPERATOR_ROLES),
       eq(restaurants.status, "active"),
     ));
   const [driver] = await db
@@ -256,7 +257,7 @@ async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userI
     .innerJoin(restaurants, eq(restaurants.id, restaurantMembers.restaurantId))
     .where(and(
       eq(restaurantMembers.userId, userId),
-      eq(restaurantMembers.role, "owner"),
+      inArray(restaurantMembers.role, RESTAURANT_OPERATOR_ROLES),
       eq(restaurants.status, "active"),
     ))
     .limit(1);

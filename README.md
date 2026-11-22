@@ -58,7 +58,7 @@ Never put bot/payment secrets in the mobile bundle or repository. `TG_BOT_TOKEN`
 
 ## Delivery readiness
 
-The current checks pass: TypeScript, Expo lint, Vitest (27 tests passed, 1 skipped), database migration generation/application, backend bundle build and API health. The bot integration check reached both configured bot profiles and verified deep-link state binding, hashed-code verification, resend throttling and single-use consumption; it did not send a code to a real user chat. Expo Web readiness remains environment-dependent and was not claimed when Metro was unavailable. These checks do not establish native-device compatibility, security guarantees, production readiness, Russian data-hosting compliance, payment integration, public webhook delivery or RuStore approval. Restaurant/menu photos, modifiers, structured ingredients, promotions, server-synced favorites, full address fields, promo codes and delivery pricing remain open rather than being simulated.
+As of 2026-11-22, local sandbox checks passed: `pnpm check`, `pnpm lint`, `pnpm test` (38 passed, 1 skipped), `pnpm build`, `pnpm build:web` and `git diff --check`. `tests/auth.logout.test.ts` still contains the skipped test. These checks did not run a database migration, authenticated API flow or live provider/device scenario, and they do not establish production readiness, Russian data-hosting compliance, online payments, public webhook delivery or RuStore approval. Menu modifiers, combos/promotions, verified reviews, full delivery pricing/validation, support tickets, finance ledger and production integrations remain open rather than being simulated.
 
 ## Stage 2 account implementation
 
