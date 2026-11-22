@@ -6,7 +6,12 @@ import {
   searchPublicCatalog,
   listRestaurantApplications,
   createOwnerMenuCategory,
+  updateOwnerMenuCategory,
+  deleteOwnerMenuCategory,
   createOwnerMenuItem,
+  updateOwnerMenuItem,
+  deleteOwnerMenuItem,
+  getRestaurantOwnerSummary,
   createCustomerOrder,
   getCustomerOrderDetails,
   cancelCustomerOrder,
@@ -362,6 +367,10 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить кабинет заведения." });
       }
     }),
+    summary: protectedProcedure.query(async ({ ctx }) => {
+      try { return await getRestaurantOwnerSummary(ctx.user.id); }
+      catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к сводке заведения." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить сводку." }); }
+    }),
     drivers: protectedProcedure.query(async ({ ctx }) => {
       try { return await listOwnerDrivers(ctx.user.id); }
       catch { throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к курьерам заведения." }); }
@@ -396,6 +405,14 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать категорию." });
         }
       }),
+    updateCategory: protectedProcedure.input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(120) })).mutation(async ({ ctx, input }) => {
+      try { return await updateOwnerMenuCategory(ctx.user.id, input.id, input.name); }
+      catch (error) { if (error instanceof Error && error.message === "MENU_CATEGORY_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Категория не найдена." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить категорию." }); }
+    }),
+    deleteCategory: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      try { return await deleteOwnerMenuCategory(ctx.user.id, input.id); }
+      catch (error) { if (error instanceof Error && error.message === "MENU_CATEGORY_NOT_EMPTY") throw new TRPCError({ code: "CONFLICT", message: "Сначала переместите или удалите блюда из этой категории." }); if (error instanceof Error && error.message === "MENU_CATEGORY_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Категория не найдена." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось удалить категорию." }); }
+    }),
     createItem: protectedProcedure
       .input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(2, "Укажите название блюда.").max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), portionLabel: z.string().trim().max(32).optional(), prepMinutes: z.number().int().min(1).max(1440), imageUrl: z.string().url().max(500).optional() }))
       .mutation(async ({ ctx, input }) => {
@@ -407,6 +424,14 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось создать блюдо." });
         }
       }),
+    updateItem: protectedProcedure.input(z.object({ id: z.number().int().positive(), categoryId: z.number().int().positive(), name: z.string().trim().min(2).max(160), description: z.string().trim().max(2000).optional(), priceKopecks: z.number().int().positive().max(100000000), portionLabel: z.string().trim().max(32).optional(), prepMinutes: z.number().int().min(1).max(1440) })).mutation(async ({ ctx, input }) => {
+      try { const { id, ...item } = input; return await updateOwnerMenuItem(ctx.user.id, id, item); }
+      catch (error) { if (error instanceof Error && error.message === "MENU_CATEGORY_NOT_FOUND") throw new TRPCError({ code: "BAD_REQUEST", message: "Категория не принадлежит вашему заведению." }); if (error instanceof Error && error.message === "MENU_ITEM_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Блюдо не найдено." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить блюдо." }); }
+    }),
+    deleteItem: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      try { return await deleteOwnerMenuItem(ctx.user.id, input.id); }
+      catch (error) { if (error instanceof Error && error.message === "MENU_ITEM_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Блюдо не найдено." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось удалить блюдо." }); }
+    }),
     updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(160), address: z.string().trim().min(2).max(240), phone: z.string().trim().min(3).max(32), description: z.string().trim().max(5000).optional(), deliveryConditions: z.string().trim().max(5000).optional() })).mutation(async ({ ctx, input }) => {
       try { return await updateOwnerRestaurantProfile(ctx.user.id, input); }
       catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заведению." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить данные заведения." }); }

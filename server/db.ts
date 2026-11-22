@@ -312,6 +312,24 @@ export async function createOwnerMenuCategory(userId: number, name: string) {
   return { id: Number(result[0].insertId), restaurantId, name: name.trim() };
 }
 
+export async function updateOwnerMenuCategory(userId: number, categoryId: number, name: string) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const result = await db!.update(menuCategories).set({ name: name.trim() }).where(and(eq(menuCategories.id, categoryId), eq(menuCategories.restaurantId, restaurantId)));
+  if (!result[0].affectedRows) throw new Error("MENU_CATEGORY_NOT_FOUND");
+  return { id: categoryId, restaurantId, name: name.trim() };
+}
+
+export async function deleteOwnerMenuCategory(userId: number, categoryId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const items = await db!.select({ id: menuItems.id }).from(menuItems).where(and(eq(menuItems.categoryId, categoryId), eq(menuItems.restaurantId, restaurantId))).limit(1);
+  if (items.length) throw new Error("MENU_CATEGORY_NOT_EMPTY");
+  const result = await db!.delete(menuCategories).where(and(eq(menuCategories.id, categoryId), eq(menuCategories.restaurantId, restaurantId)));
+  if (!result[0].affectedRows) throw new Error("MENU_CATEGORY_NOT_FOUND");
+  return { id: categoryId, deleted: true };
+}
+
 export async function createOwnerMenuItem(userId: number, input: {
   categoryId: number;
   name: string;
@@ -337,6 +355,36 @@ export async function setOwnerMenuItemAvailability(userId: number, itemId: numbe
   const restaurantId = await getOwnedRestaurantId(db, userId);
   await db!.update(menuItems).set({ available: available ? 1 : 0 }).where(and(eq(menuItems.id, itemId), eq(menuItems.restaurantId, restaurantId)));
   return { itemId, available };
+}
+
+export async function updateOwnerMenuItem(userId: number, itemId: number, input: { categoryId: number; name: string; description?: string; priceKopecks: number; portionLabel?: string; prepMinutes: number }) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [category] = await db!.select({ id: menuCategories.id }).from(menuCategories).where(and(eq(menuCategories.id, input.categoryId), eq(menuCategories.restaurantId, restaurantId))).limit(1);
+  if (!category) throw new Error("MENU_CATEGORY_NOT_FOUND");
+  const result = await db!.update(menuItems).set({ categoryId: input.categoryId, name: input.name.trim(), description: input.description?.trim() || null, priceKopecks: input.priceKopecks, portionLabel: input.portionLabel?.trim() || null, prepMinutes: input.prepMinutes }).where(and(eq(menuItems.id, itemId), eq(menuItems.restaurantId, restaurantId)));
+  if (!result[0].affectedRows) throw new Error("MENU_ITEM_NOT_FOUND");
+  return { id: itemId, restaurantId };
+}
+
+export async function deleteOwnerMenuItem(userId: number, itemId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const result = await db!.delete(menuItems).where(and(eq(menuItems.id, itemId), eq(menuItems.restaurantId, restaurantId)));
+  if (!result[0].affectedRows) throw new Error("MENU_ITEM_NOT_FOUND");
+  return { id: itemId, deleted: true };
+}
+
+export async function getRestaurantOwnerSummary(userId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const ownerOrders = await db!.select({ id: orders.id, status: orders.status, totalKopecks: orders.totalKopecks, createdAt: orders.createdAt }).from(orders).where(eq(orders.restaurantId, restaurantId)).orderBy(desc(orders.createdAt));
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Krasnoyarsk", year: "numeric", month: "2-digit", day: "2-digit" });
+  const today = day.format(new Date());
+  const todayOrders = ownerOrders.filter((order) => day.format(new Date(order.createdAt)) === today);
+  const completedStatuses = new Set(["delivered", "completed"]);
+  const completed = ownerOrders.filter((order) => completedStatuses.has(order.status));
+  return { totalOrders: ownerOrders.length, todayOrders: todayOrders.length, newOrders: ownerOrders.filter((order) => order.status === "placed").length, completedOrders: completed.length, todayRevenueKopecks: todayOrders.filter((order) => completedStatuses.has(order.status)).reduce((sum, order) => sum + order.totalKopecks, 0), totalRevenueKopecks: completed.reduce((sum, order) => sum + order.totalKopecks, 0) };
 }
 
 export async function upsertOwnerHours(userId: number, input: { dayOfWeek: number; startTime: string; endTime: string; isClosed: boolean }) {
