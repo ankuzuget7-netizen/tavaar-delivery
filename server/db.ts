@@ -23,6 +23,7 @@ import { broadcastToUser, sendExpoPushNotifications } from "./_core/realtime";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import { RESTAURANT_OPERATOR_ROLES } from "./membership-policy";
+import { assertTeamRoleAvailable, normalizeTeamPhone } from "./team-policy";
 
 const NEW_ORDER_NOTIFICATION_TITLE = "Новый заказ";
 
@@ -263,6 +264,77 @@ async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userI
     .limit(1);
   if (!membership) throw new Error("OWNER_RESTAURANT_NOT_FOUND");
   return membership.restaurantId;
+}
+
+async function requireRestaurantOwner(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, userId: number, restaurantId: number) {
+  const [membership] = await db.select({ role: restaurantMembers.role }).from(restaurantMembers).where(and(
+    eq(restaurantMembers.restaurantId, restaurantId),
+    eq(restaurantMembers.userId, userId),
+    eq(restaurantMembers.role, "owner"),
+  )).limit(1);
+  if (!membership) throw new Error("RESTAURANT_OWNER_REQUIRED");
+}
+
+export async function listOwnerTeam(userId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const [actorMembership] = await db!.select({ role: restaurantMembers.role }).from(restaurantMembers).where(and(
+    eq(restaurantMembers.restaurantId, restaurantId),
+    eq(restaurantMembers.userId, userId),
+  )).limit(1);
+  const memberships = await db!.select({
+    membershipId: restaurantMembers.id,
+    userId: users.id,
+    name: users.name,
+    phone: users.phone,
+    role: restaurantMembers.role,
+    createdAt: restaurantMembers.createdAt,
+  }).from(restaurantMembers).innerJoin(users, eq(users.id, restaurantMembers.userId)).where(and(
+    eq(restaurantMembers.restaurantId, restaurantId),
+    inArray(restaurantMembers.role, ["manager", "staff"]),
+  )).orderBy(users.name);
+  const couriers = await listOwnerCouriers(userId);
+  return {
+    canManage: actorMembership?.role === "owner",
+    administrators: memberships.filter((item) => item.role === "manager"),
+    couriers,
+  };
+}
+
+export async function addOwnerAdministrator(userId: number, phone: string) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const normalizedPhone = normalizeTeamPhone(phone);
+  return db!.transaction(async (tx) => {
+    await requireRestaurantOwner(tx as unknown as NonNullable<Awaited<ReturnType<typeof getDb>>>, userId, restaurantId);
+    const [account] = await tx.select({ id: users.id, role: users.role, phoneVerifiedAt: users.phoneVerifiedAt })
+      .from(users).where(eq(users.phone, normalizedPhone)).limit(1);
+    if (!account) throw new Error("TEAM_USER_NOT_FOUND");
+    if (!account.phoneVerifiedAt) throw new Error("TEAM_PHONE_NOT_VERIFIED");
+    if (account.role !== "user") throw new Error("TEAM_ACCOUNT_ROLE_PROTECTED");
+    const memberships = await tx.select({ role: restaurantMembers.role }).from(restaurantMembers).where(and(
+      eq(restaurantMembers.restaurantId, restaurantId),
+      eq(restaurantMembers.userId, account.id),
+    ));
+    assertTeamRoleAvailable(memberships.map((item) => item.role), "manager");
+    await tx.insert(restaurantMembers).values({ restaurantId, userId: account.id, role: "manager" });
+    return { userId: account.id, restaurantId, role: "manager" as const };
+  });
+}
+
+export async function deleteOwnerAdministrator(userId: number, targetUserId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  return db!.transaction(async (tx) => {
+    await requireRestaurantOwner(tx as unknown as NonNullable<Awaited<ReturnType<typeof getDb>>>, userId, restaurantId);
+    const result = await tx.delete(restaurantMembers).where(and(
+      eq(restaurantMembers.restaurantId, restaurantId),
+      eq(restaurantMembers.userId, targetUserId),
+      eq(restaurantMembers.role, "manager"),
+    ));
+    if (!result[0].affectedRows) throw new Error("TEAM_ADMIN_NOT_FOUND");
+    return { userId: targetUserId, deleted: true };
+  });
 }
 
 export async function getRestaurantOwnerDashboard(userId: number) {
@@ -564,17 +636,22 @@ export async function listOwnerOrders(userId: number) {
   const restaurantId = await getOwnedRestaurantId(db, userId);
   const ownerOrders = await db!.select().from(orders).where(eq(orders.restaurantId, restaurantId)).orderBy(desc(orders.createdAt));
   const items = ownerOrders.length ? await db!.select().from(orderItems).where(inArray(orderItems.orderId, ownerOrders.map((order) => order.id))) : [];
-  return ownerOrders.map((order) => ({ ...order, items: items.filter((item) => item.orderId === order.id) }));
+  const assignments = ownerOrders.length ? await db!.select({ assignment: orderDriverAssignments, driver: deliveryDrivers })
+    .from(orderDriverAssignments).innerJoin(deliveryDrivers, eq(deliveryDrivers.id, orderDriverAssignments.driverId))
+    .where(inArray(orderDriverAssignments.orderId, ownerOrders.map((order) => order.id))) : [];
+  return ownerOrders.map((order) => ({
+    ...order,
+    items: items.filter((item) => item.orderId === order.id),
+    activeAssignment: assignments.find((item) => item.assignment.orderId === order.id && ["assigned", "accepted", "picked_up"].includes(item.assignment.status)) ?? null,
+  }));
 }
 
 const ownerOrderTransitions: Record<string, string[]> = {
   placed: ["restaurant_confirmed", "restaurant_rejected"],
   restaurant_confirmed: ["preparing", "restaurant_rejected"],
   preparing: ["ready"],
-  ready: ["courier_assigned", "completed"],
+  ready: ["completed"],
   courier_assigned: ["handed_to_courier"],
-  handed_to_courier: ["in_transit"],
-  in_transit: ["delivered"],
   delivered: ["completed"],
 };
 const orderStatusTitles: Record<string, string> = {
@@ -597,16 +674,30 @@ export async function updateOwnerOrderStatus(userId: number, orderId: number, st
     const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId))).limit(1);
     if (!order) throw new Error("ORDER_NOT_FOUND");
     if (!ownerOrderTransitions[order.status]?.includes(status)) throw new Error("INVALID_ORDER_TRANSITION");
+    if (status === "completed" && order.fulfillment !== "pickup" && order.status !== "delivered") throw new Error("INVALID_ORDER_TRANSITION");
+    let handoffDriverUserId: number | null = null;
+    let handoffDriverTokens: string[] = [];
+    if (status === "handed_to_courier") {
+      const [assignment] = await tx.select({ assignment: orderDriverAssignments, driver: deliveryDrivers })
+        .from(orderDriverAssignments).innerJoin(deliveryDrivers, eq(deliveryDrivers.id, orderDriverAssignments.driverId))
+        .where(eq(orderDriverAssignments.orderId, orderId)).limit(1);
+      if (!assignment || assignment.assignment.status !== "accepted") throw new Error("COURIER_MUST_ACCEPT_FIRST");
+      handoffDriverUserId = assignment.driver.userId;
+      await tx.insert(notifications).values({ userId: handoffDriverUserId, restaurantId, orderId, type: "order_status", title: "Заказ передан вам", body: `Заведение передало заказ #${orderId}. Можно забрать его.` });
+      handoffDriverTokens = (await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(eq(pushTokens.userId, handoffDriverUserId), eq(pushTokens.active, 1)))).map((item) => item.token);
+    }
     await tx.update(orders).set({ status: status as typeof order.status, restaurantComment: reason?.trim() || null }).where(eq(orders.id, orderId));
     await tx.insert(orderStatusHistory).values({ orderId, status: status as typeof order.status, changedByUserId: userId, reason: reason?.trim() || null });
     await tx.insert(notifications).values({ userId: order.customerId, restaurantId, orderId, type: "order_status", title: "Статус заказа изменён", body: `Заказ #${orderId}: ${orderStatusTitles[status] ?? status}.` });
     const customerTokens = await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(eq(pushTokens.userId, order.customerId), eq(pushTokens.active, 1)));
     const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
-    return { orderId, status, customerId: order.customerId, customerTokens: customerTokens.map((item) => item.token), ownerUserIds: owners.map((owner) => owner.userId) };
+    return { orderId, status, customerId: order.customerId, customerTokens: customerTokens.map((item) => item.token), ownerUserIds: owners.map((owner) => owner.userId), handoffDriverUserId, handoffDriverTokens };
   });
   broadcastToUser(result.customerId, { type: "order.status_changed", orderId: result.orderId, status: result.status });
   for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.status_changed", orderId: result.orderId, status: result.status });
+  if (result.handoffDriverUserId) broadcastToUser(result.handoffDriverUserId, { type: "order.status_changed", orderId: result.orderId, status: result.status });
   void sendExpoPushNotifications(result.customerTokens, { title: "Статус заказа изменён", body: `Заказ #${result.orderId}: ${orderStatusTitles[result.status] ?? result.status}.`, data: { orderId: result.orderId, status: result.status, type: "order_status" } });
+  if (result.handoffDriverTokens.length) void sendExpoPushNotifications(result.handoffDriverTokens, { title: "Заказ передан вам", body: `Заведение передало заказ #${result.orderId}. Можно забрать его.`, data: { orderId: result.orderId, status: result.status, type: "order_status" } });
   return { orderId: result.orderId, status: result.status };
 }
 
@@ -640,9 +731,24 @@ export async function deactivatePushToken(userId: number, token: string) {
 export async function registerDeliveryDriver(userId: number, input: { displayName: string; phone: string; vehicle?: string }) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  await db.insert(deliveryDrivers).values({ userId, displayName: input.displayName.trim(), phone: input.phone.trim(), vehicle: input.vehicle?.trim() || null, status: "available" }).onDuplicateKeyUpdate({ set: { displayName: input.displayName.trim(), phone: input.phone.trim(), vehicle: input.vehicle?.trim() || null, status: "available", updatedAt: new Date() } });
-  const [driver] = await db.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, userId)).limit(1);
-  return driver;
+  const normalizedPhone = normalizeTeamPhone(input.phone);
+  return db.transaction(async (tx) => {
+    const [account] = await tx.select({ phone: users.phone, phoneVerifiedAt: users.phoneVerifiedAt, role: users.role })
+      .from(users).where(eq(users.id, userId)).limit(1);
+    if (!account || !account.phoneVerifiedAt) throw new Error("TEAM_PHONE_NOT_VERIFIED");
+    if (account.phone !== normalizedPhone) throw new Error("TEAM_PHONE_MISMATCH");
+    if (account.role !== "user") throw new Error("TEAM_ACCOUNT_ROLE_PROTECTED");
+    const [existing] = await tx.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, userId)).limit(1);
+    if (existing?.status === "busy") throw new Error("DRIVER_BUSY_PROFILE_LOCKED");
+    if (existing?.status === "suspended") throw new Error("DRIVER_SUSPENDED");
+    if (existing) {
+      await tx.update(deliveryDrivers).set({ displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, updatedAt: new Date() }).where(eq(deliveryDrivers.id, existing.id));
+    } else {
+      await tx.insert(deliveryDrivers).values({ userId, displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, status: "available" });
+    }
+    const [driver] = await tx.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, userId)).limit(1);
+    return driver;
+  });
 }
 
 export async function getDriverProfile(userId: number) {
@@ -653,16 +759,52 @@ export async function getDriverProfile(userId: number) {
   return driver;
 }
 
+export async function setDriverAvailability(userId: number, status: "available" | "offline") {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  return db.transaction(async (tx) => {
+    const [driver] = await tx.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, userId)).limit(1);
+    if (!driver) throw new Error("DRIVER_NOT_FOUND");
+    if (driver.status === "suspended") throw new Error("DRIVER_SUSPENDED");
+    const activeAssignments = await tx.select({ id: orderDriverAssignments.id }).from(orderDriverAssignments).where(and(
+      eq(orderDriverAssignments.driverId, driver.id),
+      inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]),
+    ));
+    if (activeAssignments.length) throw new Error("COURIER_HAS_ACTIVE_ORDER");
+    await tx.update(deliveryDrivers).set({ status }).where(eq(deliveryDrivers.id, driver.id));
+    return { status };
+  });
+}
+
 export async function addOwnerCourier(userId: number, input: { phone: string; displayName: string; vehicle?: string }) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
-  const normalizedPhone = input.phone.trim();
-  const [courierUser] = await db!.select({ id: users.id }).from(users).where(eq(users.phone, normalizedPhone)).limit(1);
-  if (!courierUser) throw new Error("COURIER_USER_NOT_FOUND");
-  await db!.insert(restaurantMembers).values({ restaurantId, userId: courierUser.id, role: "staff" }).onDuplicateKeyUpdate({ set: { role: "staff" } });
-  await db!.insert(deliveryDrivers).values({ userId: courierUser.id, displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, status: "available" }).onDuplicateKeyUpdate({ set: { displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, status: "available", updatedAt: new Date() } });
-  const [driver] = await db!.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, courierUser.id)).limit(1);
-  return driver;
+  const normalizedPhone = normalizeTeamPhone(input.phone);
+  return db!.transaction(async (tx) => {
+    await requireRestaurantOwner(tx as unknown as NonNullable<Awaited<ReturnType<typeof getDb>>>, userId, restaurantId);
+    const [courierUser] = await tx.select({ id: users.id, role: users.role, phoneVerifiedAt: users.phoneVerifiedAt })
+      .from(users).where(eq(users.phone, normalizedPhone)).limit(1);
+    if (!courierUser) throw new Error("TEAM_USER_NOT_FOUND");
+    if (!courierUser.phoneVerifiedAt) throw new Error("TEAM_PHONE_NOT_VERIFIED");
+    if (courierUser.role !== "user") throw new Error("TEAM_ACCOUNT_ROLE_PROTECTED");
+    const existingMemberships = await tx.select({ restaurantId: restaurantMembers.restaurantId, role: restaurantMembers.role })
+      .from(restaurantMembers).where(eq(restaurantMembers.userId, courierUser.id));
+    assertTeamRoleAvailable(existingMemberships.filter((item) => item.restaurantId === restaurantId).map((item) => item.role), "staff");
+    if (existingMemberships.some((item) => item.restaurantId !== restaurantId && item.role === "staff")) {
+      throw new Error("COURIER_ASSIGNED_ELSEWHERE");
+    }
+    const [existingDriver] = await tx.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, courierUser.id)).limit(1);
+    if (existingDriver?.status === "busy") throw new Error("DRIVER_BUSY_PROFILE_LOCKED");
+    if (existingDriver?.status === "suspended") throw new Error("DRIVER_SUSPENDED");
+    if (existingDriver) {
+      await tx.update(deliveryDrivers).set({ displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, updatedAt: new Date() }).where(eq(deliveryDrivers.id, existingDriver.id));
+    } else {
+      await tx.insert(deliveryDrivers).values({ userId: courierUser.id, displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null, status: "available" });
+    }
+    await tx.insert(restaurantMembers).values({ restaurantId, userId: courierUser.id, role: "staff" });
+    const [driver] = await tx.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, courierUser.id)).limit(1);
+    return driver;
+  });
 }
 
 export async function updateOwnerCourier(userId: number, driverId: number, input: { displayName: string; phone: string; vehicle?: string }) {
@@ -670,15 +812,32 @@ export async function updateOwnerCourier(userId: number, driverId: number, input
   const restaurantId = await getOwnedRestaurantId(db, userId);
   const [driver] = await db!.select({ driver: deliveryDrivers }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.id, driverId)).limit(1).then((rows) => rows.map((row) => row.driver));
   if (!driver) throw new Error("COURIER_NOT_FOUND");
-  await db!.update(deliveryDrivers).set({ displayName: input.displayName.trim(), phone: input.phone.trim(), vehicle: input.vehicle?.trim() || null }).where(eq(deliveryDrivers.id, driverId));
+  const normalizedPhone = normalizeTeamPhone(input.phone);
+  const [account] = await db!.select({ phone: users.phone, phoneVerifiedAt: users.phoneVerifiedAt }).from(users).where(eq(users.id, driver.userId)).limit(1);
+  if (!account?.phoneVerifiedAt || account.phone !== normalizedPhone) throw new Error("TEAM_PHONE_MISMATCH");
+  await db!.update(deliveryDrivers).set({ displayName: input.displayName.trim(), phone: normalizedPhone, vehicle: input.vehicle?.trim() || null }).where(eq(deliveryDrivers.id, driverId));
   return { id: driverId, updated: true };
 }
 
 export async function setOwnerCourierStatus(userId: number, driverId: number, status: "available" | "offline" | "suspended") {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
-  const [driver] = await db!.select({ id: deliveryDrivers.id }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.id, driverId)).limit(1);
+  const [driver] = await db!.select({ id: deliveryDrivers.id, status: deliveryDrivers.status }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(eq(deliveryDrivers.id, driverId)).limit(1);
   if (!driver) throw new Error("COURIER_NOT_FOUND");
+  if (status !== "available") {
+    const [assignment] = await db!.select({ id: orderDriverAssignments.id }).from(orderDriverAssignments).where(and(
+      eq(orderDriverAssignments.driverId, driverId),
+      inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]),
+    )).limit(1);
+    if (assignment) throw new Error("COURIER_HAS_ACTIVE_ORDER");
+  }
+  if (status === "available" && driver.status === "busy") {
+    const [assignment] = await db!.select({ id: orderDriverAssignments.id }).from(orderDriverAssignments).where(and(
+      eq(orderDriverAssignments.driverId, driverId),
+      inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]),
+    )).limit(1);
+    if (assignment) throw new Error("COURIER_HAS_ACTIVE_ORDER");
+  }
   await db!.update(deliveryDrivers).set({ status }).where(eq(deliveryDrivers.id, driverId));
   return { id: driverId, status };
 }
@@ -712,14 +871,16 @@ export async function assignDriverToOrder(userId: number, orderId: number, drive
   const result = await db!.transaction(async (tx) => {
     const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId))).limit(1);
     if (!order) throw new Error("ORDER_NOT_FOUND");
+    if (order.fulfillment !== "delivery") throw new Error("ORDER_NOT_DELIVERY");
     if (order.status !== "ready") throw new Error("ORDER_NOT_READY");
     const [driver] = await tx.select({ driver: deliveryDrivers }).from(deliveryDrivers).innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff"))).where(and(eq(deliveryDrivers.id, driverId), eq(deliveryDrivers.status, "available"))).limit(1).then((rows) => rows.map((row) => row.driver));
     if (!driver) throw new Error("DRIVER_NOT_AVAILABLE");
     const [existing] = await tx.select().from(orderDriverAssignments).where(eq(orderDriverAssignments.orderId, orderId)).limit(1);
     if (existing && existing.status !== "cancelled") throw new Error("DRIVER_ALREADY_ASSIGNED");
+    const claimed = await tx.update(deliveryDrivers).set({ status: "busy" }).where(and(eq(deliveryDrivers.id, driverId), eq(deliveryDrivers.status, "available")));
+    if (!claimed[0].affectedRows) throw new Error("DRIVER_NOT_AVAILABLE");
     if (existing?.status === "cancelled") await tx.update(orderDriverAssignments).set({ driverId, assignedByUserId: userId, status: "assigned", assignedAt: new Date() }).where(eq(orderDriverAssignments.id, existing.id));
     else await tx.insert(orderDriverAssignments).values({ orderId, driverId, assignedByUserId: userId, status: "assigned" });
-    await tx.update(deliveryDrivers).set({ status: "busy" }).where(eq(deliveryDrivers.id, driverId));
     await tx.update(orders).set({ status: "courier_assigned" }).where(eq(orders.id, orderId));
     await tx.insert(orderStatusHistory).values({ orderId, status: "courier_assigned", changedByUserId: userId, reason: `Назначен курьер: ${driver.displayName}` });
     const customerBody = `К заказу #${orderId} назначен курьер ${driver.displayName}.`;
@@ -735,11 +896,73 @@ export async function assignDriverToOrder(userId: number, orderId: number, drive
   return { orderId, status: "courier_assigned" as const, driverName: result.driverName };
 }
 
+export async function transferDriverToOrder(userId: number, orderId: number, nextDriverId: number) {
+  const db = await getDb();
+  const restaurantId = await getOwnedRestaurantId(db, userId);
+  const result = await db!.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId))).limit(1);
+    if (!order) throw new Error("ORDER_NOT_FOUND");
+    if (order.fulfillment !== "delivery" || order.status !== "courier_assigned") throw new Error("ORDER_NOT_TRANSFERABLE");
+    const [current] = await tx.select({ assignment: orderDriverAssignments, driver: deliveryDrivers })
+      .from(orderDriverAssignments).innerJoin(deliveryDrivers, eq(deliveryDrivers.id, orderDriverAssignments.driverId))
+      .where(eq(orderDriverAssignments.orderId, orderId)).limit(1);
+    if (!current || !["assigned", "accepted"].includes(current.assignment.status)) throw new Error("ORDER_NOT_TRANSFERABLE");
+    if (current.driver.id === nextDriverId) throw new Error("SAME_DRIVER");
+    const [nextDriver] = await tx.select({ driver: deliveryDrivers }).from(deliveryDrivers)
+      .innerJoin(restaurantMembers, and(eq(restaurantMembers.userId, deliveryDrivers.userId), eq(restaurantMembers.restaurantId, restaurantId), eq(restaurantMembers.role, "staff")))
+      .where(and(eq(deliveryDrivers.id, nextDriverId), eq(deliveryDrivers.status, "available"))).limit(1).then((rows) => rows.map((row) => row.driver));
+    if (!nextDriver) throw new Error("DRIVER_NOT_AVAILABLE");
+    const claimed = await tx.update(deliveryDrivers).set({ status: "busy" }).where(and(eq(deliveryDrivers.id, nextDriver.id), eq(deliveryDrivers.status, "available")));
+    if (!claimed[0].affectedRows) throw new Error("DRIVER_NOT_AVAILABLE");
+    await tx.update(orderDriverAssignments).set({ driverId: nextDriver.id, assignedByUserId: userId, status: "assigned", assignedAt: new Date() }).where(eq(orderDriverAssignments.id, current.assignment.id));
+    const previousAssignments = await tx.select({ id: orderDriverAssignments.id }).from(orderDriverAssignments).where(and(
+      eq(orderDriverAssignments.driverId, current.driver.id),
+      inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]),
+    ));
+    if (!previousAssignments.length) await tx.update(deliveryDrivers).set({ status: "available" }).where(eq(deliveryDrivers.id, current.driver.id));
+    const reason = `Заказ передан от курьера ${current.driver.displayName} курьеру ${nextDriver.displayName}`;
+    await tx.insert(orderStatusHistory).values({ orderId, status: "courier_assigned", changedByUserId: userId, reason });
+    const customerBody = `Заказ #${orderId} передан курьеру ${nextDriver.displayName}.`;
+    await tx.insert(notifications).values([
+      { userId: order.customerId, restaurantId, orderId, type: "order_status", title: "Курьер изменён", body: customerBody },
+      { userId: current.driver.userId, restaurantId, orderId, type: "order_status", title: "Заказ передан другому курьеру", body: `Заказ #${orderId} передан коллеге.` },
+      { userId: nextDriver.userId, restaurantId, orderId, type: "order_status", title: "Вам передан заказ", body: `Вам назначен заказ #${orderId}.` },
+    ]);
+    const recipients = [order.customerId, current.driver.userId, nextDriver.userId];
+    const tokens = await tx.select({ token: pushTokens.token, userId: pushTokens.userId }).from(pushTokens)
+      .where(and(inArray(pushTokens.userId, recipients), eq(pushTokens.active, 1)));
+    const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
+    return {
+      orderId,
+      customerId: order.customerId,
+      oldDriverUserId: current.driver.userId,
+      nextDriverUserId: nextDriver.userId,
+      ownerUserIds: owners.map((owner) => owner.userId),
+      tokens,
+      nextDriverName: nextDriver.displayName,
+    };
+  });
+  broadcastToUser(result.customerId, { type: "order.status_changed", orderId, status: "courier_assigned" });
+  broadcastToUser(result.oldDriverUserId, { type: "driver.assignment_removed", orderId });
+  broadcastToUser(result.nextDriverUserId, { type: "driver.assignment_created", orderId, status: "courier_assigned" });
+  for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.status_changed", orderId, status: "courier_assigned" });
+  for (const recipient of [result.customerId, result.oldDriverUserId, result.nextDriverUserId]) {
+    const tokens = result.tokens.filter((item) => item.userId === recipient).map((item) => item.token);
+    if (tokens.length) void sendExpoPushNotifications(tokens, { title: "Изменение курьера", body: `Заказ #${orderId}: назначен курьер ${result.nextDriverName}.`, data: { orderId, type: "driver_assignment" } });
+  }
+  return { orderId, status: "courier_assigned" as const, driverName: result.nextDriverName, transferred: true };
+}
+
 export async function listDriverAssignments(userId: number) {
   const db = await getDb();
   const [driver] = await db!.select().from(deliveryDrivers).where(eq(deliveryDrivers.userId, userId)).limit(1);
   if (!driver) throw new Error("DRIVER_NOT_FOUND");
-  const assignments = await db!.select({ assignment: orderDriverAssignments, order: orders, restaurant: restaurants }).from(orderDriverAssignments).innerJoin(orders, eq(orders.id, orderDriverAssignments.orderId)).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(and(eq(orderDriverAssignments.driverId, driver.id), inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]))).orderBy(desc(orderDriverAssignments.updatedAt));
+  const rows = await db!.select({ assignment: orderDriverAssignments, order: orders, restaurant: restaurants, accountPhone: users.phone })
+    .from(orderDriverAssignments).innerJoin(orders, eq(orders.id, orderDriverAssignments.orderId))
+    .innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).innerJoin(users, eq(users.id, orders.customerId))
+    .where(and(eq(orderDriverAssignments.driverId, driver.id), inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"])))
+    .orderBy(desc(orderDriverAssignments.updatedAt));
+  const assignments = rows.map(({ accountPhone, order, ...item }) => ({ ...item, order: { ...order, contactPhone: order.contactPhone ?? accountPhone } }));
   return { driver, assignments };
 }
 
@@ -750,22 +973,32 @@ export async function updateDriverAssignmentStatus(userId: number, orderId: numb
     if (!driver) throw new Error("DRIVER_NOT_FOUND");
     const [assignment] = await tx.select().from(orderDriverAssignments).where(and(eq(orderDriverAssignments.orderId, orderId), eq(orderDriverAssignments.driverId, driver.id))).limit(1);
     if (!assignment) throw new Error("ASSIGNMENT_NOT_FOUND");
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (!order) throw new Error("ORDER_NOT_FOUND");
     const allowed: Record<string, string[]> = { assigned: ["accepted"], accepted: ["picked_up"], picked_up: ["delivered"] };
     if (!allowed[assignment.status]?.includes(status)) throw new Error("INVALID_DRIVER_TRANSITION");
+    if (status === "accepted" && order.status !== "courier_assigned") throw new Error("INVALID_DRIVER_TRANSITION");
+    if (status === "picked_up" && order.status !== "handed_to_courier") throw new Error("ORDER_NOT_HANDED_OFF");
+    if (status === "delivered" && order.status !== "in_transit") throw new Error("INVALID_DRIVER_TRANSITION");
     const nextOrderStatus = status === "picked_up" ? "in_transit" : status === "delivered" ? "delivered" : "courier_assigned";
     await tx.update(orderDriverAssignments).set({ status }).where(eq(orderDriverAssignments.id, assignment.id));
     await tx.update(orders).set({ status: nextOrderStatus }).where(eq(orders.id, orderId));
     await tx.insert(orderStatusHistory).values({ orderId, status: nextOrderStatus, changedByUserId: userId, reason: `Статус курьера: ${status}` });
-    if (status === "delivered") await tx.update(deliveryDrivers).set({ status: "available" }).where(eq(deliveryDrivers.id, driver.id));
-    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
-    if (!order) throw new Error("ORDER_NOT_FOUND");
+    if (status === "delivered") {
+      const remaining = await tx.select({ id: orderDriverAssignments.id }).from(orderDriverAssignments).where(and(
+        eq(orderDriverAssignments.driverId, driver.id),
+        inArray(orderDriverAssignments.status, ["assigned", "accepted", "picked_up"]),
+      ));
+      if (!remaining.length) await tx.update(deliveryDrivers).set({ status: "available" }).where(eq(deliveryDrivers.id, driver.id));
+    }
     const body = `Заказ #${orderId}: ${orderStatusTitles[nextOrderStatus] ?? nextOrderStatus}.`;
     await tx.insert(notifications).values({ userId: order.customerId, restaurantId: order.restaurantId, orderId, type: "order_status", title: "Статус заказа изменён", body });
     const customerTokens = await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(eq(pushTokens.userId, order.customerId), eq(pushTokens.active, 1)));
     const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, order.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
-    return { orderId, customerId: order.customerId, restaurantId: order.restaurantId, status: nextOrderStatus, customerTokens: customerTokens.map((token) => token.token), ownerUserIds: owners.map((owner) => owner.userId) };
+    return { orderId, customerId: order.customerId, restaurantId: order.restaurantId, driverUserId: userId, status: nextOrderStatus, customerTokens: customerTokens.map((token) => token.token), ownerUserIds: owners.map((owner) => owner.userId) };
   });
   broadcastToUser(result.customerId, { type: "order.status_changed", orderId, status: result.status });
+  broadcastToUser(result.driverUserId, { type: "order.status_changed", orderId, status: result.status });
   for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.status_changed", orderId, status: result.status });
   void sendExpoPushNotifications(result.customerTokens, { title: "Статус заказа изменён", body: `Заказ #${orderId}: ${orderStatusTitles[result.status] ?? result.status}.`, data: { orderId, status: result.status, type: "order_status" } });
   return { orderId, status: result.status };
