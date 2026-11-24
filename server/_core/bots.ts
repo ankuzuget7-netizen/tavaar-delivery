@@ -37,13 +37,23 @@ async function telegramRequest<T>(method: string, body?: Record<string, unknown>
 
 async function maxRequest<T>(urlPath: string, init: { method?: string; body?: string } = {}) {
   const token = tokenFor("max");
-  const caPath = path.resolve(process.cwd(), "resources/certs/russian_trusted_ca_bundle.pem");
-  let ca: Buffer;
-  try {
-    ca = readFileSync(caPath);
-  } catch {
+  const caPaths = [
+    process.env.MAX_TLS_CA_PATH,
+    path.resolve(process.cwd(), "resources/certs/russian_trusted_ca_bundle.pem"),
+    "/etc/ssl/certs/ca-certificates.crt",
+  ].filter((value): value is string => Boolean(value));
+  const caPath = caPaths.find((candidate) => {
+    try {
+      readFileSync(candidate);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!caPath) {
     throw new Error("MAX_TLS_CA_MISSING");
   }
+  const ca = readFileSync(caPath);
   const payload = init.body;
   const data = await new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
     const request = https.request(`https://platform-api2.max.ru${urlPath}`, { method: init.method || "GET", ca, headers: { authorization: token, ...(payload ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload) } : {}) }, timeout: 15000 }, (response) => {
