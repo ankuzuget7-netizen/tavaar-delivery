@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { ENV } from "./env";
+import { storageGetSignedUrl } from "../storage";
 
 export function registerStorageProxy(app: Express) {
   app.get("/manus-storage/*", async (req, res) => {
@@ -9,40 +9,13 @@ export function registerStorageProxy(app: Express) {
       return;
     }
 
-    if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
-      res.status(500).send("Storage proxy not configured");
-      return;
-    }
-
     try {
-      const forgeUrl = new URL(
-        "v1/storage/presign/get",
-        ENV.forgeApiUrl.replace(/\/+$/, "") + "/",
-      );
-      forgeUrl.searchParams.set("path", key);
-
-      const forgeResp = await fetch(forgeUrl, {
-        headers: { Authorization: `Bearer ${ENV.forgeApiKey}` },
-      });
-
-      if (!forgeResp.ok) {
-        await forgeResp.body?.cancel().catch(() => undefined);
-        console.error("[StorageProxy] forge request failed");
-        res.status(502).send("Storage backend error");
-        return;
-      }
-
-      const { url } = (await forgeResp.json()) as { url: string };
-      if (!url) {
-        res.status(502).send("Empty signed URL from backend");
-        return;
-      }
-
+      const url = await storageGetSignedUrl(key);
       res.set("Cache-Control", "no-store");
       res.redirect(307, url);
-    } catch {
-      console.error("[StorageProxy] failed");
-      res.status(502).send("Storage proxy error");
+    } catch (error) {
+      console.error("[StorageProxy] failed", error instanceof Error ? error.message : "unknown error");
+      res.status(502).send("Storage backend error");
     }
   });
 }
