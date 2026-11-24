@@ -29,12 +29,12 @@ export default function ProfileScreen() {
     <ActionRow icon="settings-outline" title="Настройки аккаунта" body="Имя, телефон и безопасность" onPress={() => router.push("/account/settings" as never)} colors={colors} />
     <ActionRow icon="heart-outline" title="Избранное" body="Сохранённые заведения и блюда" onPress={() => router.push("/account/favorites" as never)} colors={colors} />
     <ActionRow icon="location-outline" title="Адреса доставки" body="Добавление и основной адрес" onPress={() => router.push("/account/addresses" as never)} colors={colors} />
-    {me.data.role === "super_admin" ? <><Text style={[styles.section, { color: colors.foreground }]}>Управление</Text><ActionRow icon="shield-checkmark-outline" title="Управление платформой" body="Заведения, заявки, пользователи и заказы" onPress={() => router.push("/owner" as never)} colors={colors} /></> : null}
-    {me.data.role === "admin" ? <><Text style={[styles.section, { color: colors.foreground }]}>Платформа</Text><ActionRow icon="shield-checkmark-outline" title="Панель администратора платформы" body="Заявки заведений и модерация" onPress={() => router.push("/admin/applications" as never)} colors={colors} /></> : null}
-    <Text style={[styles.section, { color: colors.foreground }]}>{isRestaurantOwner ? "Моё заведение" : "Для бизнеса"}</Text>
+    {(me.data.role === "super_admin" || me.data.role === "admin" || isRestaurantOwner) ? <Text style={[styles.section, { color: colors.foreground }]}>Рабочие панели</Text> : null}
+    {me.data.role === "super_admin" ? <ActionRow icon="shield-checkmark-outline" title="Управление платформой" body="Открывается внутри tavaar.online: заведения, заявки, пользователи и заказы" onPress={() => router.push("/owner" as never)} colors={colors} /> : null}
+    {me.data.role === "admin" ? <ActionRow icon="shield-checkmark-outline" title="Панель администратора платформы" body="Открывается внутри tavaar.online: заявки заведений и модерация" onPress={() => router.push("/admin/applications" as never)} colors={colors} /> : null}
     {isRestaurantOwner
-      ? <ActionRow icon="storefront-outline" title="Кабинет заведения" body="Меню, заказы и команда заведения" onPress={() => router.push("/partner/dashboard" as never)} colors={colors} />
-      : <ActionRow icon="storefront-outline" title="Стать партнёром" body="Подключите ресторан, кафе или точку питания" onPress={() => router.push("/partner/apply" as never)} colors={colors} />}
+      ? <ActionRow icon="storefront-outline" title="Кабинет заведения" body="Открывается внутри этого приложения: меню, заказы и команда" onPress={() => router.push("/partner/dashboard" as never)} colors={colors} />
+      : <><Text style={[styles.section, { color: colors.foreground }]}>Для бизнеса</Text><ActionRow icon="storefront-outline" title="Стать партнёром" body="Подключите ресторан, кафе или точку питания" onPress={() => router.push("/partner/apply" as never)} colors={colors} /></>}
     {isDriver ? <><Text style={[styles.section, { color: colors.foreground }]}>Курьер</Text><ActionRow icon="bicycle-outline" title="Кабинет курьера" body="Назначенные доставки и статусы" onPress={() => router.push("/driver/dashboard" as never)} colors={colors} /></> : null}
     <Text style={[styles.section, { color: colors.foreground }]}>Помощь</Text>
     <ActionRow icon="receipt-outline" title="Мои заказы" body="История и статусы заказов" onPress={() => router.push("/(tabs)/orders" as never)} colors={colors} />
