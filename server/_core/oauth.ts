@@ -6,6 +6,7 @@ import {
   getSessionCookieOptions,
 } from "./cookies";
 import { sdk } from "./sdk";
+import { ENV } from "./env";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -66,6 +67,10 @@ function buildUserResponse(
 
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+    if (!ENV.usesManusOAuth) {
+      res.status(503).json({ error: "Manus OAuth is disabled in standalone mode" });
+      return;
+    }
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 
@@ -103,6 +108,10 @@ export function registerOAuthRoutes(app: Express) {
   });
 
   app.get("/api/oauth/mobile", async (req: Request, res: Response) => {
+    if (!ENV.usesManusOAuth) {
+      res.status(503).json({ error: "Manus OAuth is disabled in standalone mode" });
+      return;
+    }
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 
