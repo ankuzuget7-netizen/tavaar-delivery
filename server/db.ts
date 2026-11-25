@@ -1,10 +1,13 @@
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertRestaurantApplication,
   InsertUser,
   menuCategories,
   menuItems,
+  menuDiscounts,
+  promoCodes,
+  promoCodeUsages,
   notifications,
   deliveryDrivers,
   driverLocations,
@@ -378,13 +381,14 @@ export async function getRestaurantOwnerDashboard(userId: number) {
   ]);
   const restaurant = legacyRestaurant ? { ...legacyRestaurant, logoUrl: null as string | null, coverUrl: null as string | null, deliveryConditions: null as string | null } : undefined;
   const items = legacyItems.map((item) => ({ ...item, imageUrl: null as string | null, portionLabel: null as string | null }));
+  const [discounts, promoCodesList] = await Promise.all([db!.select().from(menuDiscounts).where(eq(menuDiscounts.restaurantId, restaurantId)), db!.select().from(promoCodes).where(eq(promoCodes.restaurantId, restaurantId)).orderBy(desc(promoCodes.createdAt))]);
   let hours: typeof restaurantHours.$inferSelect[] = [];
   try {
     hours = await db!.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek);
   } catch (error) {
     console.error("[OwnerDashboard] Failed to load restaurant hours; returning empty schedule", error);
   }
-  return { restaurant, categories, items, hours };
+  return { restaurant, categories, items, hours, discounts, promoCodes: promoCodesList };
 }
 
 export async function createOwnerMenuCategory(userId: number, name: string) {
@@ -478,6 +482,12 @@ export async function upsertOwnerHours(userId: number, input: { dayOfWeek: numbe
   return { restaurantId, ...input };
 }
 
+
+export async function listOwnerPromotions(userId: number) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const [discounts, promoCodesList] = await Promise.all([db!.select().from(menuDiscounts).where(eq(menuDiscounts.restaurantId, restaurantId)).orderBy(desc(menuDiscounts.createdAt)), db!.select().from(promoCodes).where(eq(promoCodes.restaurantId, restaurantId)).orderBy(desc(promoCodes.createdAt))]); return { discounts, promoCodes: promoCodesList }; }
+export async function saveOwnerDiscount(userId: number, input: { id?: number; menuItemId?: number; categoryId?: number; discountType: "percent" | "fixed"; value: number; startsAt?: string; endsAt?: string; isActive: boolean }) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); if (!input.menuItemId && !input.categoryId) throw new Error("DISCOUNT_TARGET_REQUIRED"); if (input.discountType === "percent" && (input.value < 1 || input.value > 100)) throw new Error("INVALID_DISCOUNT"); if (input.discountType === "fixed" && input.value < 1) throw new Error("INVALID_DISCOUNT"); const values = { restaurantId, menuItemId: input.menuItemId ?? null, categoryId: input.categoryId ?? null, discountType: input.discountType, value: input.value, startsAt: input.startsAt ? new Date(input.startsAt) : null, endsAt: input.endsAt ? new Date(input.endsAt) : null, isActive: input.isActive ? 1 : 0 }; if (input.id) { const result = await db!.update(menuDiscounts).set(values).where(and(eq(menuDiscounts.id, input.id), eq(menuDiscounts.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("DISCOUNT_NOT_FOUND"); return { id: input.id }; } const result = await db!.insert(menuDiscounts).values(values); return { id: Number(result[0].insertId) }; }
+export async function deleteOwnerDiscount(userId: number, id: number) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const result = await db!.delete(menuDiscounts).where(and(eq(menuDiscounts.id, id), eq(menuDiscounts.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("DISCOUNT_NOT_FOUND"); return { id, deleted: true }; }
+export async function saveOwnerPromoCode(userId: number, input: { id?: number; code: string; discountType: "percent" | "fixed"; value: number; minOrderKopecks: number; usageLimit?: number; usagePerUserLimit?: number; startsAt?: string; endsAt?: string; isActive: boolean }) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const code = input.code.trim().toUpperCase(); if (!/^[A-ZА-Я0-9_-]{3,64}$/.test(code)) throw new Error("INVALID_PROMO_CODE"); if (input.discountType === "percent" && (input.value < 1 || input.value > 100)) throw new Error("INVALID_DISCOUNT"); if (input.discountType === "fixed" && input.value < 1) throw new Error("INVALID_DISCOUNT"); const values = { restaurantId, code, discountType: input.discountType, value: input.value, minOrderKopecks: input.minOrderKopecks, usageLimit: input.usageLimit ?? null, usagePerUserLimit: input.usagePerUserLimit ?? null, startsAt: input.startsAt ? new Date(input.startsAt) : null, endsAt: input.endsAt ? new Date(input.endsAt) : null, isActive: input.isActive ? 1 : 0 }; try { if (input.id) { const result = await db!.update(promoCodes).set(values).where(and(eq(promoCodes.id, input.id), eq(promoCodes.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("PROMO_NOT_FOUND"); return { id: input.id }; } const result = await db!.insert(promoCodes).values(values); return { id: Number(result[0].insertId) }; } catch (error) { if (String(error).includes("Duplicate")) throw new Error("PROMO_DUPLICATE"); throw error; } }
+export async function deleteOwnerPromoCode(userId: number, id: number) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const result = await db!.delete(promoCodes).where(and(eq(promoCodes.id, id), eq(promoCodes.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("PROMO_NOT_FOUND"); return { id, deleted: true }; }
 export async function updateOwnerRestaurantProfile(userId: number, input: { name: string; address: string; phone: string; description?: string; deliveryConditions?: string }) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
@@ -534,74 +544,114 @@ function getRestaurantOpenStatus(hours: Array<{ dayOfWeek: number; startTime: st
   return { isOpen, hours };
 }
 
+
+type PricingDiscount = { discountType: "percent" | "fixed"; value: number };
+function activeDiscount(discounts: Array<typeof menuDiscounts.$inferSelect>, item: { id: number; categoryId: number }, now = new Date()) {
+  const active = discounts.filter((discount) => discount.isActive && (!discount.startsAt || new Date(discount.startsAt) <= now) && (!discount.endsAt || new Date(discount.endsAt) >= now));
+  return active.find((discount) => discount.menuItemId === item.id) ?? active.find((discount) => discount.categoryId === item.categoryId) ?? active.find((discount) => !discount.menuItemId && !discount.categoryId);
+}
+function discountedPrice(originalPriceKopecks: number, discount?: PricingDiscount | null) {
+  if (!discount) return { priceKopecks: originalPriceKopecks, discountKopecks: 0, discountPercent: 0 };
+  const raw = discount.discountType === "percent" ? Math.round(originalPriceKopecks * Math.max(0, Math.min(100, discount.value)) / 100) : Math.max(0, discount.value);
+  const priceKopecks = Math.max(0, originalPriceKopecks - raw);
+  return { priceKopecks, discountKopecks: originalPriceKopecks - priceKopecks, discountPercent: originalPriceKopecks ? Math.round((originalPriceKopecks - priceKopecks) * 100 / originalPriceKopecks) : 0 };
+}
+function promoDiscount(subtotalKopecks: number, promo: typeof promoCodes.$inferSelect) {
+  if (subtotalKopecks < promo.minOrderKopecks) throw new Error("PROMO_MIN_ORDER_NOT_REACHED");
+  return Math.min(subtotalKopecks, promo.discountType === "percent" ? Math.round(subtotalKopecks * Math.max(0, Math.min(100, promo.value)) / 100) : Math.max(0, promo.value));
+}
+async function priceMenuLines(tx: any, restaurantId: number, requested: { menuItemId: number; quantity: number }[]) {
+  const ids = [...new Set(requested.map((item) => item.menuItemId))];
+  const menu = await tx.select().from(menuItems).where(and(eq(menuItems.restaurantId, restaurantId), eq(menuItems.available, 1), inArray(menuItems.id, ids)));
+  if (menu.length !== ids.length) throw new Error("MENU_ITEMS_UNAVAILABLE");
+  const discounts = await tx.select().from(menuDiscounts).where(eq(menuDiscounts.restaurantId, restaurantId));
+  const byId = new Map(menu.map((item: any) => [item.id, item]));
+  return requested.map((line) => {
+    const item = byId.get(line.menuItemId) as typeof menuItems.$inferSelect | undefined;
+    if (!item || !Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 99) throw new Error("INVALID_ORDER_ITEMS");
+    const pricing = discountedPrice(item.priceKopecks, activeDiscount(discounts, item));
+    return { menuItemId: item.id, nameSnapshot: item.name, originalPriceKopecks: item.priceKopecks, priceKopecks: pricing.priceKopecks, discountKopecks: pricing.discountKopecks, quantity: line.quantity, lineTotalKopecks: pricing.priceKopecks * line.quantity };
+  });
+}
+async function resolvePromo(tx: any, restaurantId: number, customerId: number, code: string | undefined, subtotalKopecks: number) {
+  if (!code?.trim()) return { promo: null, discountKopecks: 0 };
+  const normalized = code.trim().toUpperCase();
+  const [promo] = await tx.select().from(promoCodes).where(and(eq(promoCodes.restaurantId, restaurantId), eq(promoCodes.code, normalized), eq(promoCodes.isActive, 1))).limit(1);
+  if (!promo) throw new Error("PROMO_NOT_FOUND");
+  const now = new Date();
+  if ((promo.startsAt && new Date(promo.startsAt) > now) || (promo.endsAt && new Date(promo.endsAt) < now)) throw new Error("PROMO_EXPIRED");
+  if (promo.usageLimit !== null && promo.usageCount >= promo.usageLimit) throw new Error("PROMO_USAGE_LIMIT");
+  const usages = await tx.select({ id: promoCodeUsages.id }).from(promoCodeUsages).where(and(eq(promoCodeUsages.promoCodeId, promo.id), eq(promoCodeUsages.customerId, customerId)));
+  if (promo.usagePerUserLimit !== null && usages.length >= promo.usagePerUserLimit) throw new Error("PROMO_USER_LIMIT");
+  return { promo, discountKopecks: promoDiscount(subtotalKopecks, promo) };
+}
+export async function previewCustomerOrder(userId: number, input: { restaurantId: number; items: { menuItemId: number; quantity: number }[]; promoCode?: string }) {
+  const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  return db.transaction(async (tx) => {
+    const lines = await priceMenuLines(tx, input.restaurantId, input.items);
+    const subtotalKopecks = lines.reduce((sum: number, line: any) => sum + line.lineTotalKopecks, 0);
+    const { promo, discountKopecks } = await resolvePromo(tx, input.restaurantId, userId, input.promoCode, subtotalKopecks);
+    return { restaurantId: input.restaurantId, lines, subtotalKopecks, promoDiscountKopecks: discountKopecks, discountKopecks: lines.reduce((sum: number, line: any) => sum + line.discountKopecks * line.quantity, 0) + discountKopecks, totalKopecks: Math.max(0, subtotalKopecks - discountKopecks), promoCode: promo?.code ?? null };
+  });
+}
+
 export async function getPublicRestaurantMenu(restaurantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const [restaurant] = await db.select().from(restaurants).where(and(eq(restaurants.id, restaurantId), eq(restaurants.status, "active"))).limit(1);
   if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
-  const [categories, items, hours] = await Promise.all([
+  const [categories, rawItems, hours, discounts] = await Promise.all([
     db.select().from(menuCategories).where(eq(menuCategories.restaurantId, restaurantId)).orderBy(menuCategories.sortOrder, menuCategories.id),
     db.select().from(menuItems).where(and(eq(menuItems.restaurantId, restaurantId), eq(menuItems.available, 1))).orderBy(menuItems.id),
     db.select().from(restaurantHours).where(eq(restaurantHours.restaurantId, restaurantId)).orderBy(restaurantHours.dayOfWeek),
+    db.select().from(menuDiscounts).where(eq(menuDiscounts.restaurantId, restaurantId)),
   ]);
-  return { restaurant, categories, items, hours, openStatus: getRestaurantOpenStatus(hours) };
+  const items = (rawItems as Array<typeof menuItems.$inferSelect>).map((item) => ({ ...item, originalPriceKopecks: item.priceKopecks, ...discountedPrice(item.priceKopecks, activeDiscount(discounts, item)) }));
+  const hasActivePromotion = items.some((item) => item.discountKopecks > 0);
+  return { restaurant, categories, items, hours, hasActivePromotion, openStatus: getRestaurantOpenStatus(hours) };
 }
 
 export async function createCustomerOrder(userId: number, input: {
-  restaurantId: number;
-  items: { menuItemId: number; quantity: number }[];
-  fulfillment: "delivery" | "pickup";
-  paymentMethod: "cash";
-  idempotencyKey: string;
-  address: string;
-  contactPhone?: string;
-  customerComment?: string;
+  restaurantId: number; items: { menuItemId: number; quantity: number }[]; fulfillment: "delivery" | "pickup"; paymentMethod: "cash"; idempotencyKey: string; address: string; contactPhone?: string; customerComment?: string; promoCode?: string;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const result = await db.transaction(async (tx) => {
     const [existing] = await tx.select({ id: orders.id, customerId: orders.customerId, totalKopecks: orders.totalKopecks, status: orders.status }).from(orders).where(eq(orders.idempotencyKey, input.idempotencyKey)).limit(1);
-    if (existing) {
-      if (existing.customerId !== userId) throw new Error("IDEMPOTENCY_KEY_CONFLICT");
-      return { orderId: existing.id, totalKopecks: existing.totalKopecks, status: existing.status, ownerUserIds: [] as number[], ownerTokens: [] as string[], replayed: true };
-    }
+    if (existing) { if (existing.customerId !== userId) throw new Error("IDEMPOTENCY_KEY_CONFLICT"); return { orderId: existing.id, totalKopecks: existing.totalKopecks, status: existing.status, replayed: true }; }
     const [restaurant] = await tx.select().from(restaurants).where(and(eq(restaurants.id, input.restaurantId), eq(restaurants.status, "active"))).limit(1);
     if (!restaurant) throw new Error("RESTAURANT_NOT_FOUND");
-    const itemIds = [...new Set(input.items.map((item) => item.menuItemId))];
-    const menu = await tx.select().from(menuItems).where(and(eq(menuItems.restaurantId, input.restaurantId), eq(menuItems.available, 1), inArray(menuItems.id, itemIds)));
-    if (menu.length !== itemIds.length) throw new Error("MENU_ITEMS_UNAVAILABLE");
-    const menuById = new Map(menu.map((item) => [item.id, item]));
-    const lines = input.items.map((line) => {
-      const item = menuById.get(line.menuItemId);
-      if (!item || !Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 99) throw new Error("INVALID_ORDER_ITEMS");
-      return { menuItemId: item.id, nameSnapshot: item.name, priceKopecks: item.priceKopecks, quantity: line.quantity, lineTotalKopecks: item.priceKopecks * line.quantity };
-    });
-    const totalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
-    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, address: input.address.trim(), contactPhone: input.contactPhone?.trim() || null, customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, totalKopecks, status: "placed" });
+    const lines = await priceMenuLines(tx, input.restaurantId, input.items);
+    const subtotalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
+    const { promo, discountKopecks: promoDiscountKopecks } = await resolvePromo(tx, input.restaurantId, userId, input.promoCode, subtotalKopecks);
+    const itemDiscountKopecks = lines.reduce((sum, line) => sum + line.discountKopecks * line.quantity, 0);
+    const totalKopecks = Math.max(0, subtotalKopecks - promoDiscountKopecks);
+    const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, address: input.address.trim(), contactPhone: input.contactPhone?.trim() || null, customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks: 0, subtotalKopecks, discountKopecks: itemDiscountKopecks + promoDiscountKopecks, promoCode: promo?.code ?? null, totalKopecks, status: "placed" });
     const orderId = Number(orderResult[0].insertId);
     await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));
+    if (promo) { await tx.update(promoCodes).set({ usageCount: sql`${promoCodes.usageCount} + 1` }).where(eq(promoCodes.id, promo.id)); await tx.insert(promoCodeUsages).values({ promoCodeId: promo.id, restaurantId: input.restaurantId, orderId, customerId: userId, discountKopecks: promoDiscountKopecks }); }
     await tx.insert(orderStatusHistory).values({ orderId, status: "placed", changedByUserId: userId, reason: "Заказ оформлен клиентом" });
     const owners = await tx.select({ userId: restaurantMembers.userId }).from(restaurantMembers).where(and(eq(restaurantMembers.restaurantId, input.restaurantId), inArray(restaurantMembers.role, ["owner", "manager"])));
     if (owners.length > 0) await tx.insert(notifications).values(owners.map((owner) => ({ userId: owner.userId, restaurantId: input.restaurantId, orderId, type: "new_order" as const, title: NEW_ORDER_NOTIFICATION_TITLE, body: `Заказ #${orderId} на ${(totalKopecks / 100).toFixed(2)} ₽ ожидает подтверждения.` })));
     const ownerTokens = owners.length ? await tx.select({ token: pushTokens.token }).from(pushTokens).where(and(inArray(pushTokens.userId, owners.map((owner) => owner.userId)), eq(pushTokens.active, 1))) : [];
     return { orderId, totalKopecks, status: "placed" as const, ownerUserIds: owners.map((owner) => owner.userId), ownerTokens: ownerTokens.map((item) => item.token), replayed: false };
   });
-  if (result.replayed) return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status, replayed: true };
-  for (const ownerUserId of result.ownerUserIds) broadcastToUser(ownerUserId, { type: "order.created", orderId: result.orderId, status: result.status });
-  void sendExpoPushNotifications(result.ownerTokens, { title: NEW_ORDER_NOTIFICATION_TITLE, body: `Заказ #${result.orderId} ожидает подтверждения.`, data: { orderId: result.orderId, type: "new_order" } });
+  if (result.replayed) return result;
+  const ownerUserIds = ("ownerUserIds" in result ? result.ownerUserIds : []) ?? [];
+  const ownerTokens = ("ownerTokens" in result ? result.ownerTokens : []) ?? [];
+  for (const ownerUserId of ownerUserIds) broadcastToUser(ownerUserId, { type: "order.created", orderId: result.orderId, status: result.status });
+  void sendExpoPushNotifications(ownerTokens, { title: NEW_ORDER_NOTIFICATION_TITLE, body: `Заказ #${result.orderId} ожидает подтверждения.`, data: { orderId: result.orderId, type: "new_order" } });
   return { orderId: result.orderId, totalKopecks: result.totalKopecks, status: result.status, replayed: false };
 }
-
 export async function listCustomerOrders(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  return db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, address: orders.address, totalKopecks: orders.totalKopecks, createdAt: orders.createdAt, restaurantName: restaurants.name }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(eq(orders.customerId, userId)).orderBy(desc(orders.createdAt));
+  return db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, address: orders.address, totalKopecks: orders.totalKopecks, subtotalKopecks: orders.subtotalKopecks, discountKopecks: orders.discountKopecks, promoCode: orders.promoCode, createdAt: orders.createdAt, restaurantName: restaurants.name }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(eq(orders.customerId, userId)).orderBy(desc(orders.createdAt));
 }
 
 export async function getCustomerOrderDetails(userId: number, orderId: number) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  const [order] = await db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, paymentMethod: orders.paymentMethod, address: orders.address, contactPhone: orders.contactPhone, customerComment: orders.customerComment, totalKopecks: orders.totalKopecks, deliveryFeeKopecks: orders.deliveryFeeKopecks, createdAt: orders.createdAt, updatedAt: orders.updatedAt, restaurantName: restaurants.name, restaurantPhone: restaurants.phone }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(and(eq(orders.id, orderId), eq(orders.customerId, userId))).limit(1);
+  const [order] = await db.select({ id: orders.id, status: orders.status, fulfillment: orders.fulfillment, paymentMethod: orders.paymentMethod, address: orders.address, contactPhone: orders.contactPhone, customerComment: orders.customerComment, totalKopecks: orders.totalKopecks, subtotalKopecks: orders.subtotalKopecks, discountKopecks: orders.discountKopecks, promoCode: orders.promoCode, deliveryFeeKopecks: orders.deliveryFeeKopecks, createdAt: orders.createdAt, updatedAt: orders.updatedAt, restaurantName: restaurants.name, restaurantPhone: restaurants.phone }).from(orders).innerJoin(restaurants, eq(restaurants.id, orders.restaurantId)).where(and(eq(orders.id, orderId), eq(orders.customerId, userId))).limit(1);
   if (!order) throw new Error("ORDER_NOT_FOUND");
   const [items, history] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, orderId)),

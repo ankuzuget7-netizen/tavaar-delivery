@@ -141,6 +141,39 @@ export const restaurantHours = mysqlTable("restaurant_hours", {
 
 export type RestaurantHours = typeof restaurantHours.$inferSelect;
 export type InsertRestaurantHours = typeof restaurantHours.$inferInsert;
+export const menuDiscounts = mysqlTable("menu_discounts", {
+  id: int("id").autoincrement().primaryKey(),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  menuItemId: int("menuItemId").references(() => menuItems.id),
+  categoryId: int("categoryId").references(() => menuCategories.id),
+  discountType: mysqlEnum("discountType", ["percent", "fixed"]).notNull(),
+  value: int("value").notNull(),
+  startsAt: timestamp("startsAt"),
+  endsAt: timestamp("endsAt"),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type MenuDiscount = typeof menuDiscounts.$inferSelect;
+export type InsertMenuDiscount = typeof menuDiscounts.$inferInsert;
+export const promoCodes = mysqlTable("promo_codes", {
+  id: int("id").autoincrement().primaryKey(),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  code: varchar("code", { length: 64 }).notNull(),
+  discountType: mysqlEnum("discountType", ["percent", "fixed"]).notNull(),
+  value: int("value").notNull(),
+  minOrderKopecks: int("minOrderKopecks").default(0).notNull(),
+  usageLimit: int("usageLimit"),
+  usagePerUserLimit: int("usagePerUserLimit"),
+  usageCount: int("usageCount").default(0).notNull(),
+  startsAt: timestamp("startsAt"),
+  endsAt: timestamp("endsAt"),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({ restaurantCode: uniqueIndex("promo_codes_restaurant_code").on(table.restaurantId, table.code) }));
+export type PromoCode = typeof promoCodes.$inferSelect;
+export type InsertPromoCode = typeof promoCodes.$inferInsert;
 
 export const orders = mysqlTable("orders", {
   id: int("id").autoincrement().primaryKey(),
@@ -153,6 +186,9 @@ export const orders = mysqlTable("orders", {
   address: varchar("address", { length: 400 }).notNull(),
   contactPhone: varchar("contactPhone", { length: 32 }),
   deliveryFeeKopecks: int("deliveryFeeKopecks").default(0).notNull(),
+  subtotalKopecks: int("subtotalKopecks").default(0).notNull(),
+  discountKopecks: int("discountKopecks").default(0).notNull(),
+  promoCode: varchar("promoCode", { length: 64 }),
   totalKopecks: int("totalKopecks").notNull(),
   customerComment: text("customerComment"),
   restaurantComment: text("restaurantComment"),
@@ -169,12 +205,25 @@ export const orderItems = mysqlTable("order_items", {
   menuItemId: int("menuItemId").notNull().references(() => menuItems.id),
   nameSnapshot: varchar("nameSnapshot", { length: 160 }).notNull(),
   priceKopecks: int("priceKopecks").notNull(),
+  originalPriceKopecks: int("originalPriceKopecks").default(0).notNull(),
+  discountKopecks: int("discountKopecks").default(0).notNull(),
   quantity: int("quantity").notNull(),
   lineTotalKopecks: int("lineTotalKopecks").notNull(),
 });
 
 export type OrderItem = typeof orderItems.$inferSelect;
 export type InsertOrderItem = typeof orderItems.$inferInsert;
+
+export const promoCodeUsages = mysqlTable("promo_code_usages", {
+  id: int("id").autoincrement().primaryKey(),
+  promoCodeId: int("promoCodeId").notNull().references(() => promoCodes.id),
+  restaurantId: int("restaurantId").notNull().references(() => restaurants.id),
+  orderId: int("orderId").notNull().references(() => orders.id),
+  customerId: int("customerId").notNull().references(() => users.id),
+  discountKopecks: int("discountKopecks").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({ orderPromo: uniqueIndex("promo_code_usages_order_promo").on(table.orderId, table.promoCodeId) }));
+export type PromoCodeUsage = typeof promoCodeUsages.$inferSelect;
 
 export const orderStatusHistory = mysqlTable("order_status_history", {
   id: int("id").autoincrement().primaryKey(),

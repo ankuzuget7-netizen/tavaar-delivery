@@ -20,6 +20,11 @@ import {
   setOwnerCourierStatus,
   deleteOwnerCourier,
   createCustomerOrder,
+  previewCustomerOrder,
+  saveOwnerDiscount,
+  deleteOwnerDiscount,
+  saveOwnerPromoCode,
+  deleteOwnerPromoCode,
   getCustomerOrderDetails,
   cancelCustomerOrder,
   submitCustomerOrderComplaint,
@@ -205,6 +210,10 @@ export const appRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось изменить номер." });
       }
     }),
+    saveDiscount: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), menuItemId: z.number().int().positive().optional(), categoryId: z.number().int().positive().optional(), discountType: z.enum(["percent", "fixed"]), value: z.number().int().positive(), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => { try { return await saveOwnerDiscount(ctx.user.id, input); } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "DISCOUNT_TARGET_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Выберите блюдо или категорию." }); if (code === "INVALID_DISCOUNT") throw new TRPCError({ code: "BAD_REQUEST", message: "Проверьте размер скидки." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить скидку." }); } }),
+    deleteDiscount: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { try { return await deleteOwnerDiscount(ctx.user.id, input.id); } catch { throw new TRPCError({ code: "NOT_FOUND", message: "Скидка не найдена." }); } }),
+    savePromoCode: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), code: z.string().trim().min(3).max(64), discountType: z.enum(["percent", "fixed"]), value: z.number().int().positive(), minOrderKopecks: z.number().int().min(0), usageLimit: z.number().int().positive().optional(), usagePerUserLimit: z.number().int().positive().optional(), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => { try { return await saveOwnerPromoCode(ctx.user.id, input); } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "PROMO_DUPLICATE") throw new TRPCError({ code: "CONFLICT", message: "Такой промокод уже есть у этого заведения." }); if (code === "INVALID_PROMO_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Код: минимум 3 символа, только буквы, цифры, _ или -." }); if (code === "INVALID_DISCOUNT") throw new TRPCError({ code: "BAD_REQUEST", message: "Проверьте размер скидки." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить промокод." }); } }),
+    deletePromoCode: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { try { return await deleteOwnerPromoCode(ctx.user.id, input.id); } catch { throw new TRPCError({ code: "NOT_FOUND", message: "Промокод не найден." }); } }),
     updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().max(32).optional() })).mutation(async ({ ctx, input }) => { try { return await updateAccountProfile(ctx.user.id, input); } catch (error) { if (error instanceof Error && error.message === "PHONE_CHANGE_REQUIRES_CONFIRMATION") throw new TRPCError({ code: "CONFLICT", message: "Для смены подтверждённого номера нужно пройти новое подтверждение через Telegram или MAX." }); throw error; } }),
     addresses: router({
       list: protectedProcedure.query(({ ctx }) => listAddresses(ctx.user.id)),
@@ -321,8 +330,14 @@ export const appRouter = router({
       try { return await getCustomerOrderTracking(ctx.user.id, input.orderId); }
       catch { throw new TRPCError({ code: "NOT_FOUND", message: "Заказ для отслеживания не найден." }); }
     }),
+    preview: protectedProcedure
+      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), promoCode: z.string().trim().max(64).optional() }))
+      .query(async ({ ctx, input }) => {
+        try { return await previewCustomerOrder(ctx.user.id, input); }
+        catch (error) { const code = error instanceof Error ? error.message : ""; const messages: Record<string, string> = { PROMO_NOT_FOUND: "Промокод не найден для этого заведения.", PROMO_EXPIRED: "Промокод ещё не действует или уже истёк.", PROMO_USAGE_LIMIT: "Лимит использований промокода исчерпан.", PROMO_USER_LIMIT: "Вы уже использовали этот промокод максимальное число раз.", PROMO_MIN_ORDER_NOT_REACHED: "Минимальная сумма заказа для промокода ещё не достигнута." }; if (messages[code]) throw new TRPCError({ code: "BAD_REQUEST", message: messages[code] }); throw new TRPCError({ code: "BAD_REQUEST", message: "Не удалось пересчитать цены заказа." }); }
+      }),
     create: protectedProcedure
-      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), paymentMethod: z.literal("cash"), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), contactPhone: z.string().trim().min(7).max(32).optional(), customerComment: z.string().trim().max(1000).optional() }))
+      .input(z.object({ restaurantId: z.number().int().positive(), items: z.array(z.object({ menuItemId: z.number().int().positive(), quantity: z.number().int().min(1).max(99) })).min(1).max(50), fulfillment: z.enum(["delivery", "pickup"]), paymentMethod: z.literal("cash"), idempotencyKey: z.string().uuid(), address: z.string().trim().min(5).max(400), contactPhone: z.string().trim().min(7).max(32).optional(), customerComment: z.string().trim().max(1000).optional(), promoCode: z.string().trim().max(64).optional() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await createCustomerOrder(ctx.user.id, input);
@@ -531,6 +546,10 @@ export const appRouter = router({
       try { return await deleteOwnerMenuItem(ctx.user.id, input.id); }
       catch (error) { if (error instanceof Error && error.message === "MENU_ITEM_NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Блюдо не найдено." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось удалить блюдо." }); }
     }),
+    saveDiscount: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), menuItemId: z.number().int().positive().optional(), categoryId: z.number().int().positive().optional(), discountType: z.enum(["percent", "fixed"]), value: z.number().int().positive(), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => { try { return await saveOwnerDiscount(ctx.user.id, input); } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "DISCOUNT_TARGET_REQUIRED") throw new TRPCError({ code: "BAD_REQUEST", message: "Выберите блюдо или категорию." }); if (code === "INVALID_DISCOUNT") throw new TRPCError({ code: "BAD_REQUEST", message: "Проверьте размер скидки." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить скидку." }); } }),
+    deleteDiscount: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { try { return await deleteOwnerDiscount(ctx.user.id, input.id); } catch { throw new TRPCError({ code: "NOT_FOUND", message: "Скидка не найдена." }); } }),
+    savePromoCode: protectedProcedure.input(z.object({ id: z.number().int().positive().optional(), code: z.string().trim().min(3).max(64), discountType: z.enum(["percent", "fixed"]), value: z.number().int().positive(), minOrderKopecks: z.number().int().min(0), usageLimit: z.number().int().positive().optional(), usagePerUserLimit: z.number().int().positive().optional(), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), isActive: z.boolean() })).mutation(async ({ ctx, input }) => { try { return await saveOwnerPromoCode(ctx.user.id, input); } catch (error) { const code = error instanceof Error ? error.message : ""; if (code === "PROMO_DUPLICATE") throw new TRPCError({ code: "CONFLICT", message: "Такой промокод уже есть у этого заведения." }); if (code === "INVALID_PROMO_CODE") throw new TRPCError({ code: "BAD_REQUEST", message: "Код: минимум 3 символа, только буквы, цифры, _ или -." }); if (code === "INVALID_DISCOUNT") throw new TRPCError({ code: "BAD_REQUEST", message: "Проверьте размер скидки." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить промокод." }); } }),
+    deletePromoCode: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => { try { return await deleteOwnerPromoCode(ctx.user.id, input.id); } catch { throw new TRPCError({ code: "NOT_FOUND", message: "Промокод не найден." }); } }),
     updateProfile: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(160), address: z.string().trim().min(2).max(240), phone: z.string().trim().min(3).max(32), description: z.string().trim().max(5000).optional(), deliveryConditions: z.string().trim().max(5000).optional() })).mutation(async ({ ctx, input }) => {
       try { return await updateOwnerRestaurantProfile(ctx.user.id, input); }
       catch (error) { if (error instanceof Error && error.message === "OWNER_RESTAURANT_NOT_FOUND") throw new TRPCError({ code: "FORBIDDEN", message: "Нет доступа к заведению." }); throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось сохранить данные заведения." }); }
