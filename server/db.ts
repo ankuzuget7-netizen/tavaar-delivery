@@ -231,26 +231,40 @@ export async function approveRestaurantApplication(input: { applicationId: numbe
   });
 }
 
-export async function listPublicRestaurants() {
+/** Reads a city only when it is explicitly the first part of the stored address. */
+export function cityFromAddress(address: string | null | undefined): string | null {
+  const first = (address ?? "").split(",")[0]?.trim().replace(/^г\.?\s*/i, "").replace(/^город\s+/i, "").trim();
+  if (!first || /^(ул\.?|улица|проспект|пр-т|пер\.?|переулок|д\.?|дом)(?:\s|$)/i.test(first)) return null;
+  return first;
+}
+
+export async function listPublicRestaurants(city?: string) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const rows = await db.select().from(restaurants).where(eq(restaurants.status, "active"));
-  if (rows.length === 0) return [];
-  const hours = await db.select().from(restaurantHours).where(inArray(restaurantHours.restaurantId, rows.map((row) => row.id)));
+  const normalizedCity = cityFromAddress(city);
+  const selectedRows = normalizedCity ? rows.filter((row) => cityFromAddress(row.address) === normalizedCity) : rows;
+  if (selectedRows.length === 0) return [];
+  const hours = await db.select().from(restaurantHours).where(inArray(restaurantHours.restaurantId, selectedRows.map((row) => row.id)));
   const hoursByRestaurant = new Map<number, typeof hours>();
   for (const hour of hours) {
     const current = hoursByRestaurant.get(hour.restaurantId) ?? [];
     current.push(hour);
     hoursByRestaurant.set(hour.restaurantId, current);
   }
-  return rows.map((restaurant) => ({ ...restaurant, openStatus: getRestaurantOpenStatus(hoursByRestaurant.get(restaurant.id) ?? []) }));
+  return selectedRows.map((restaurant) => ({ ...restaurant, city: cityFromAddress(restaurant.address), openStatus: getRestaurantOpenStatus(hoursByRestaurant.get(restaurant.id) ?? []) }));
 }
 
-export async function searchPublicCatalog(query: string) {
+export async function listPublicCities() {
+  const restaurants = await listPublicRestaurants();
+  return Array.from(new Set(restaurants.map((restaurant) => restaurant.city).filter((city): city is string => Boolean(city)))).sort((a, b) => a.localeCompare(b, "ru"));
+}
+
+export async function searchPublicCatalog(query: string, city?: string) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const normalized = query.trim();
-  if (!normalized) return { restaurants: await listPublicRestaurants(), dishes: [] };
+  if (!normalized) return { restaurants: await listPublicRestaurants(city), dishes: [] };
   const pattern = `%${normalized}%`;
   const [publicRestaurants, dishes] = await Promise.all([
     db.select().from(restaurants).where(and(eq(restaurants.status, "active"), or(like(restaurants.name, pattern), like(restaurants.type, pattern), like(restaurants.address, pattern)))).limit(50),
@@ -259,7 +273,11 @@ export async function searchPublicCatalog(query: string) {
       .innerJoin(restaurants, eq(restaurants.id, menuItems.restaurantId))
       .where(and(eq(restaurants.status, "active"), eq(menuItems.available, 1), or(like(menuItems.name, pattern), like(menuItems.description, pattern)))).limit(100),
   ]);
-  return { restaurants: publicRestaurants, dishes };
+  const cityRestaurants = city ? new Set((await listPublicRestaurants(city)).map((restaurant) => restaurant.id)) : null;
+  return {
+    restaurants: publicRestaurants.filter((restaurant) => !cityRestaurants || cityRestaurants.has(restaurant.id)).map((restaurant) => ({ ...restaurant, city: cityFromAddress(restaurant.address) })),
+    dishes: dishes.filter((dish) => !cityRestaurants || cityRestaurants.has(dish.restaurantId)),
+  };
 }
 
 async function getOwnedRestaurantId(db: Awaited<ReturnType<typeof getDb>>, userId: number) {
@@ -608,7 +626,7 @@ export async function getPublicRestaurantMenu(restaurantId: number) {
   ]);
   const items = (rawItems as Array<typeof menuItems.$inferSelect>).map((item) => ({ ...item, originalPriceKopecks: item.priceKopecks, ...discountedPrice(item.priceKopecks, activeDiscount(discounts, item)) }));
   const hasActivePromotion = items.some((item) => item.discountKopecks > 0);
-  return { restaurant, categories, items, hours, hasActivePromotion, openStatus: getRestaurantOpenStatus(hours) };
+  return { restaurant: { ...restaurant, city: cityFromAddress(restaurant.address) }, categories, items, hours, hasActivePromotion, openStatus: getRestaurantOpenStatus(hours) };
 }
 
 export async function createCustomerOrder(userId: number, input: {

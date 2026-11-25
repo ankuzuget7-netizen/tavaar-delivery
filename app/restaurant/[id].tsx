@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { EditorialIcon, EditorialPill, EmptyState, Price, SectionHeading, SurfaceCard } from "@/components/editorial-ui";
@@ -13,7 +13,7 @@ export default function RestaurantScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const restaurantId = Number(id);
-  const { cart, addToCart, setCartQuantity, cartCount, isFavorite, toggleFavorite } = useCustomerState();
+  const { cart, addToCart, setCartQuantity, cartCount, isFavorite, toggleFavorite, setSelectedCity } = useCustomerState();
   const me = trpc.auth.me.useQuery();
   const serverFavorites = trpc.favorites.list.useQuery(undefined, { enabled: Boolean(me.data) });
   const syncFavorite = trpc.favorites.toggle.useMutation({ onSuccess: () => void serverFavorites.refetch() });
@@ -23,6 +23,7 @@ export default function RestaurantScreen() {
   if (menu.isLoading) return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><View style={styles.center}><EditorialIcon name="sparkles-outline" /><Text style={[styles.loading, { color: colors.foreground }]}>Загружаем меню</Text><Text style={[styles.body, { color: colors.muted }]}>Подбираем блюда заведения.</Text></View></ScreenContainer>;
   if (menu.isError || !menu.data) return <ScreenContainer style={[styles.screen, { backgroundColor: colors.background }]}><View style={styles.center}><EmptyState icon="cloud-offline-outline" title="Меню недоступно" body="Заведение закрыто или ещё не добавило блюда." /></View></ScreenContainer>;
   const { restaurant, categories, items, openStatus, hasActivePromotion } = menu.data;
+  useEffect(() => { if (restaurant.city) setSelectedCity(restaurant.city); }, [restaurant.city, setSelectedCity]);
   const shownItems = (selectedCategory ? items.filter((item) => item.categoryId === selectedCategory) : items).filter((item) => !query.trim() || item.name.toLowerCase().includes(query.trim().toLowerCase()) || item.description?.toLowerCase().includes(query.trim().toLowerCase()));
   const today = (new Date().getDay() + 6) % 7; const todayHours = openStatus.hours.find((item) => item.dayOfWeek === today); const nextHours = openStatus.hours.find((item) => !item.isClosed && item.dayOfWeek !== today);
   const scheduleSummary = todayHours && !todayHours.isClosed ? `Сегодня ${todayHours.startTime}–${todayHours.endTime}` : nextHours ? `Откроется ${["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][nextHours.dayOfWeek]} в ${nextHours.startTime}` : "График не задан";

@@ -18,6 +18,7 @@ export type CartItem = {
 type CustomerState = {
   cart: CartItem[];
   favorites: number[];
+  selectedCity: string | null;
   cartRestaurantId: number | null;
   cartTotalKopecks: number;
   cartCount: number;
@@ -28,30 +29,35 @@ type CustomerState = {
   clearCart: () => void;
   toggleFavorite: (restaurantId: number) => void;
   replaceFavorites: (restaurantIds: number[]) => void;
+  setSelectedCity: (city: string | null) => void;
   isFavorite: (restaurantId: number) => boolean;
 };
 
 const CustomerStateContext = createContext<CustomerState | null>(null);
 const CART_KEY = "akdovurak.cart.v1";
 const FAVORITES_KEY = "akdovurak.favorites.v1";
+const CITY_KEY = "akdovurak.city.v1";
 
 export function CustomerStateProvider({ children }: PropsWithChildren) {
   const colors = useColors();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<number[]>([]);
+  const [selectedCity, setSelectedCityState] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [pendingItem, setPendingItem] = useState<CartItem | null>(null);
 
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(CART_KEY), AsyncStorage.getItem(FAVORITES_KEY)]).then(([savedCart, savedFavorites]) => {
+    Promise.all([AsyncStorage.getItem(CART_KEY), AsyncStorage.getItem(FAVORITES_KEY), AsyncStorage.getItem(CITY_KEY)]).then(([savedCart, savedFavorites, savedCity]) => {
       try { if (savedCart) setCart(JSON.parse(savedCart)); } catch { setCart([]); }
       try { if (savedFavorites) setFavorites(JSON.parse(savedFavorites)); } catch { setFavorites([]); }
+      if (savedCity) setSelectedCityState(savedCity);
       setHydrated(true);
     }).catch(() => setHydrated(true));
   }, []);
 
   useEffect(() => { if (hydrated) void AsyncStorage.setItem(CART_KEY, JSON.stringify(cart)); }, [cart, hydrated]);
   useEffect(() => { if (hydrated) void AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }, [favorites, hydrated]);
+  useEffect(() => { if (hydrated) { if (selectedCity) void AsyncStorage.setItem(CITY_KEY, selectedCity); else void AsyncStorage.removeItem(CITY_KEY); } }, [selectedCity, hydrated]);
 
   const addToCart = useCallback((item: CartItem) => {
     if (cart.length > 0 && cart[0].restaurantId !== item.restaurantId) {
@@ -73,6 +79,7 @@ export function CustomerStateProvider({ children }: PropsWithChildren) {
   const value = useMemo<CustomerState>(() => ({
     cart,
     favorites,
+    selectedCity,
     cartRestaurantId: cart[0]?.restaurantId ?? null,
     cartTotalKopecks: cart.reduce((sum, item) => sum + item.priceKopecks * item.quantity, 0),
     cartCount: cart.reduce((sum, item) => sum + item.quantity, 0),
@@ -83,8 +90,9 @@ export function CustomerStateProvider({ children }: PropsWithChildren) {
     clearCart: () => setCart([]),
     toggleFavorite: (restaurantId) => setFavorites((current) => current.includes(restaurantId) ? current.filter((id) => id !== restaurantId) : [...current, restaurantId]),
     replaceFavorites: (restaurantIds) => setFavorites(Array.from(new Set(restaurantIds))),
+    setSelectedCity: setSelectedCityState,
     isFavorite: (restaurantId) => favorites.includes(restaurantId),
-  }), [addToCart, cart, favorites, hydrated]);
+  }), [addToCart, cart, favorites, hydrated, selectedCity]);
 
   return <CustomerStateContext.Provider value={value}>
     {children}

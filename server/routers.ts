@@ -3,6 +3,7 @@ import {
   approveRestaurantApplication,
   createRestaurantApplication,
   listPublicRestaurants,
+  listPublicCities,
   searchPublicCatalog,
   listRestaurantApplications,
   createOwnerMenuCategory,
@@ -288,16 +289,23 @@ export const appRouter = router({
   }),
 
   restaurants: router({
-    listPublic: publicProcedure.query(async () => {
+    cities: publicProcedure.query(async () => {
       try {
-        return await listPublicRestaurants();
+        return await listPublicCities();
+      } catch {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить города." });
+      }
+    }),
+    listPublic: publicProcedure.input(z.object({ city: z.string().trim().max(120).optional() }).optional()).query(async ({ input }) => {
+      try {
+        return await listPublicRestaurants(input?.city);
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось загрузить заведения." });
       }
     }),
-    search: publicProcedure.input(z.object({ query: z.string().trim().max(120) })).query(async ({ input }) => {
+    search: publicProcedure.input(z.object({ query: z.string().trim().max(120), city: z.string().trim().max(120).optional() })).query(async ({ input }) => {
       try {
-        return await searchPublicCatalog(input.query);
+        return await searchPublicCatalog(input.query, input.city);
       } catch {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Не удалось выполнить поиск каталога." });
       }
