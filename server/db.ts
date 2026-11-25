@@ -231,7 +231,16 @@ export async function approveRestaurantApplication(input: { applicationId: numbe
 export async function listPublicRestaurants() {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  return db.select().from(restaurants).where(eq(restaurants.status, "active"));
+  const rows = await db.select().from(restaurants).where(eq(restaurants.status, "active"));
+  if (rows.length === 0) return [];
+  const hours = await db.select().from(restaurantHours).where(inArray(restaurantHours.restaurantId, rows.map((row) => row.id)));
+  const hoursByRestaurant = new Map<number, typeof hours>();
+  for (const hour of hours) {
+    const current = hoursByRestaurant.get(hour.restaurantId) ?? [];
+    current.push(hour);
+    hoursByRestaurant.set(hour.restaurantId, current);
+  }
+  return rows.map((restaurant) => ({ ...restaurant, openStatus: getRestaurantOpenStatus(hoursByRestaurant.get(restaurant.id) ?? []) }));
 }
 
 export async function searchPublicCatalog(query: string) {
