@@ -381,9 +381,7 @@ export async function getRestaurantOwnerDashboard(userId: number) {
       description: restaurants.description,
       deliveryConditions: restaurants.deliveryConditions,
       deliveryFeeKopecks: restaurants.deliveryFeeKopecks,
-      freeDeliveryFromKopecks: restaurants.freeDeliveryFromKopecks,
-      deliveryTimeMinutes: restaurants.deliveryTimeMinutes,
-      pickupTimeMinutes: restaurants.pickupTimeMinutes,
+      freeDeliveryThresholdKopecks: restaurants.freeDeliveryThresholdKopecks,
       status: restaurants.status,
       createdAt: restaurants.createdAt,
       updatedAt: restaurants.updatedAt,
@@ -511,10 +509,10 @@ export async function saveOwnerDiscount(userId: number, input: { id?: number; me
 export async function deleteOwnerDiscount(userId: number, id: number) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const result = await db!.delete(menuDiscounts).where(and(eq(menuDiscounts.id, id), eq(menuDiscounts.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("DISCOUNT_NOT_FOUND"); return { id, deleted: true }; }
 export async function saveOwnerPromoCode(userId: number, input: { id?: number; code: string; discountType: "percent" | "fixed"; value: number; minOrderKopecks: number; usageLimit?: number; usagePerUserLimit?: number; startsAt?: string; endsAt?: string; isActive: boolean }) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const code = input.code.trim().toUpperCase(); if (!/^[A-ZА-Я0-9_-]{3,64}$/.test(code)) throw new Error("INVALID_PROMO_CODE"); if (input.discountType === "percent" && (input.value < 1 || input.value > 100)) throw new Error("INVALID_DISCOUNT"); if (input.discountType === "fixed" && input.value < 1) throw new Error("INVALID_DISCOUNT"); const values = { restaurantId, code, discountType: input.discountType, value: input.value, minOrderKopecks: input.minOrderKopecks, usageLimit: input.usageLimit ?? null, usagePerUserLimit: input.usagePerUserLimit ?? null, startsAt: input.startsAt ? new Date(input.startsAt) : null, endsAt: input.endsAt ? new Date(input.endsAt) : null, isActive: input.isActive ? 1 : 0 }; try { if (input.id) { const result = await db!.update(promoCodes).set(values).where(and(eq(promoCodes.id, input.id), eq(promoCodes.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("PROMO_NOT_FOUND"); return { id: input.id }; } const result = await db!.insert(promoCodes).values(values); return { id: Number(result[0].insertId) }; } catch (error) { if (String(error).includes("Duplicate")) throw new Error("PROMO_DUPLICATE"); throw error; } }
 export async function deleteOwnerPromoCode(userId: number, id: number) { const db = await getDb(); const restaurantId = await getOwnedRestaurantId(db, userId); const result = await db!.delete(promoCodes).where(and(eq(promoCodes.id, id), eq(promoCodes.restaurantId, restaurantId))); if (!result[0].affectedRows) throw new Error("PROMO_NOT_FOUND"); return { id, deleted: true }; }
-export async function updateOwnerRestaurantProfile(userId: number, input: { name: string; address: string; phone: string; description?: string; deliveryConditions?: string; deliveryFeeKopecks: number; freeDeliveryFromKopecks?: number | null; deliveryTimeMinutes: number; pickupTimeMinutes: number }) {
+export async function updateOwnerRestaurantProfile(userId: number, input: { name: string; address: string; phone: string; description?: string; deliveryConditions?: string; deliveryFeeKopecks: number; freeDeliveryThresholdKopecks?: number | null }) {
   const db = await getDb();
   const restaurantId = await getOwnedRestaurantId(db, userId);
-  await db!.update(restaurants).set({ name: input.name.trim(), address: input.address.trim(), phone: input.phone.trim(), description: input.description?.trim() || null, deliveryConditions: input.deliveryConditions?.trim() || null, deliveryFeeKopecks: input.deliveryFeeKopecks, freeDeliveryFromKopecks: input.freeDeliveryFromKopecks ?? null, deliveryTimeMinutes: input.deliveryTimeMinutes, pickupTimeMinutes: input.pickupTimeMinutes }).where(eq(restaurants.id, restaurantId));
+  await db!.update(restaurants).set({ name: input.name.trim(), address: input.address.trim(), phone: input.phone.trim(), description: input.description?.trim() || null, deliveryConditions: input.deliveryConditions?.trim() || null, deliveryFeeKopecks: input.deliveryFeeKopecks, freeDeliveryThresholdKopecks: input.freeDeliveryThresholdKopecks ?? null }).where(eq(restaurants.id, restaurantId));
   return { restaurantId };
 }
 
@@ -581,7 +579,7 @@ function discountedPrice(originalPriceKopecks: number, discount?: PricingDiscoun
 }
 function calculateDeliveryFee(restaurant: typeof restaurants.$inferSelect, subtotalKopecks: number, fulfillment: "delivery" | "pickup") {
   if (fulfillment === "pickup") return 0;
-  if (restaurant.freeDeliveryFromKopecks !== null && restaurant.freeDeliveryFromKopecks > 0 && subtotalKopecks >= restaurant.freeDeliveryFromKopecks) return 0;
+  if (restaurant.freeDeliveryThresholdKopecks !== null && restaurant.freeDeliveryThresholdKopecks > 0 && subtotalKopecks >= restaurant.freeDeliveryThresholdKopecks) return 0;
   return Math.max(0, restaurant.deliveryFeeKopecks ?? 0);
 }
 function promoDiscount(subtotalKopecks: number, promo: typeof promoCodes.$inferSelect) {
@@ -621,8 +619,9 @@ export async function previewCustomerOrder(userId: number, input: { restaurantId
     const lines = await priceMenuLines(tx, input.restaurantId, input.items);
     const subtotalKopecks = lines.reduce((sum: number, line: any) => sum + line.lineTotalKopecks, 0);
     const { promo, discountKopecks } = await resolvePromo(tx, input.restaurantId, userId, input.promoCode, subtotalKopecks);
-    const deliveryFeeKopecks = calculateDeliveryFee(restaurant, subtotalKopecks, input.fulfillment);
-    return { restaurantId: input.restaurantId, lines, subtotalKopecks, deliveryFeeKopecks, promoDiscountKopecks: discountKopecks, discountKopecks: lines.reduce((sum: number, line: any) => sum + line.discountKopecks * line.quantity, 0) + discountKopecks, totalKopecks: Math.max(0, subtotalKopecks - discountKopecks + deliveryFeeKopecks), promoCode: promo?.code ?? null };
+    const pricedSubtotalKopecks = Math.max(0, subtotalKopecks - discountKopecks);
+    const deliveryFeeKopecks = calculateDeliveryFee(restaurant, pricedSubtotalKopecks, input.fulfillment);
+    return { restaurantId: input.restaurantId, lines, subtotalKopecks, freeDeliveryThresholdKopecks: restaurant.freeDeliveryThresholdKopecks, deliveryFeeKopecks, promoDiscountKopecks: discountKopecks, discountKopecks: lines.reduce((sum: number, line: any) => sum + line.discountKopecks * line.quantity, 0) + discountKopecks, totalKopecks: Math.max(0, subtotalKopecks - discountKopecks + deliveryFeeKopecks), promoCode: promo?.code ?? null };
   });
 }
 
@@ -655,8 +654,9 @@ export async function createCustomerOrder(userId: number, input: {
     const subtotalKopecks = lines.reduce((sum, line) => sum + line.lineTotalKopecks, 0);
     const { promo, discountKopecks: promoDiscountKopecks } = await resolvePromo(tx, input.restaurantId, userId, input.promoCode, subtotalKopecks);
     const itemDiscountKopecks = lines.reduce((sum, line) => sum + line.discountKopecks * line.quantity, 0);
-    const deliveryFeeKopecks = calculateDeliveryFee(restaurant, subtotalKopecks, input.fulfillment);
-    const totalKopecks = Math.max(0, subtotalKopecks - promoDiscountKopecks + deliveryFeeKopecks);
+    const pricedSubtotalKopecks = Math.max(0, subtotalKopecks - promoDiscountKopecks);
+    const deliveryFeeKopecks = calculateDeliveryFee(restaurant, pricedSubtotalKopecks, input.fulfillment);
+    const totalKopecks = Math.max(0, pricedSubtotalKopecks + deliveryFeeKopecks);
     const orderResult = await tx.insert(orders).values({ customerId: userId, restaurantId: input.restaurantId, fulfillment: input.fulfillment, paymentMethod: input.paymentMethod, idempotencyKey: input.idempotencyKey, address: input.address.trim(), contactPhone: input.contactPhone?.trim() || null, customerComment: input.customerComment?.trim() || null, deliveryFeeKopecks, subtotalKopecks, discountKopecks: itemDiscountKopecks + promoDiscountKopecks, promoCode: promo?.code ?? null, totalKopecks, status: "placed" });
     const orderId = Number(orderResult[0].insertId);
     await tx.insert(orderItems).values(lines.map((line) => ({ orderId, ...line })));

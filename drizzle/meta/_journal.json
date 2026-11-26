@@ -141,6 +141,13 @@
       "when": 1795419687867,
       "tag": "0019_menu_item_portion",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1795711320000,
+      "tag": "0021_restaurant_delivery_settings",
+      "breakpoints": true
     }
   ]
 }
