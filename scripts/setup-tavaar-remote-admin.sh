@@ -55,12 +55,17 @@ APP_DIR="/opt/tavaar"
 SOURCE_DIR="/opt/tavaar-src"
 ENV_FILE="/etc/tavaar.env"
 WEB_ROOT="$APP_DIR/web-dist"
-APP_USER="tavaar"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ "$(id -u)" == 0 ]] || fail 'wrapper must run as root'
 [[ -d "$APP_DIR" ]] || fail "$APP_DIR not found"
 [[ -d "$SOURCE_DIR/.git" ]] || fail "$SOURCE_DIR/.git not found"
+SERVICE_USER="$(systemctl show tavaar-app.service --property=User --value 2>/dev/null || true)"
+SERVICE_GROUP="$(systemctl show tavaar-app.service --property=Group --value 2>/dev/null || true)"
+APP_USER="${SERVICE_USER:-root}"
+APP_GROUP="${SERVICE_GROUP:-$(id -gn "$APP_USER" 2>/dev/null || true)}"
+id "$APP_USER" >/dev/null 2>&1 || fail "service user $APP_USER does not exist"
+getent group "$APP_GROUP" >/dev/null 2>&1 || fail "service group $APP_GROUP does not exist"
 
 case "${1:-}" in
   status)
@@ -86,7 +91,7 @@ case "${1:-}" in
       -C "$APP_DIR" .
     tar -tzf "$backup" >/dev/null || fail 'pre-deploy artifact backup verification failed'
     rsync -a \
-      --chown="$APP_USER:$APP_USER" \
+      --chown="$APP_USER:$APP_GROUP" \
       --exclude='.git/' \
       --exclude='node_modules/' \
       --exclude='dist/' \
