@@ -8,6 +8,7 @@ set -Eeuo pipefail
 
 DEPLOY_USER="tavaar-deploy"
 APP_DIR="/opt/tavaar"
+SOURCE_DIR="/opt/tavaar-src"
 ENV_FILE="/etc/tavaar.env"
 WRAPPER="/usr/local/sbin/tavaar-deploy"
 SUDOERS="/etc/sudoers.d/tavaar-deploy"
@@ -51,6 +52,7 @@ cat > "$WRAPPER" <<'WRAPPER'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 APP_DIR="/opt/tavaar"
+SOURCE_DIR="/opt/tavaar-src"
 ENV_FILE="/etc/tavaar.env"
 WEB_ROOT="$APP_DIR/web-dist"
 APP_USER="tavaar"
@@ -58,6 +60,7 @@ APP_USER="tavaar"
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ "$(id -u)" == 0 ]] || fail 'wrapper must run as root'
 [[ -d "$APP_DIR" ]] || fail "$APP_DIR not found"
+[[ -d "$SOURCE_DIR/.git" ]] || fail "$SOURCE_DIR/.git not found"
 
 case "${1:-}" in
   status)
@@ -69,8 +72,29 @@ case "${1:-}" in
     tail -80 /var/log/nginx/error.log 2>/dev/null || true
     ;;
   deploy)
-    cd "$APP_DIR"
-    git pull --ff-only origin main
+    umask 077
+    git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR" fetch --no-tags https://github.com/ankuzuget7-netizen/tavaar-delivery.git main
+    git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR" merge --ff-only FETCH_HEAD
+    install -d -o root -g root -m 0700 "$APP_DIR/backups"
+    backup="$APP_DIR/backups/predeploy-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+    tar -czf "$backup" \
+      --exclude='./backups' \
+      --exclude='./node_modules' \
+      --exclude='./.env' \
+      --exclude='./.env.*' \
+      --exclude='./.deploy-*' \
+      -C "$APP_DIR" .
+    tar -tzf "$backup" >/dev/null || fail 'pre-deploy artifact backup verification failed'
+    rsync -a \
+      --chown="$APP_USER:$APP_USER" \
+      --exclude='.git/' \
+      --exclude='node_modules/' \
+      --exclude='dist/' \
+      --exclude='web-dist/' \
+      --exclude='backups/' \
+      --exclude='.env' \
+      --exclude='.env.*' \
+      "$SOURCE_DIR/" "$APP_DIR/"
     runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && pnpm install --frozen-lockfile"
     runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && pnpm check"
     runuser -u "$APP_USER" -- env HOME="$APP_DIR" bash -lc "cd '$APP_DIR' && pnpm build"
