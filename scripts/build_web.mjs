@@ -3,8 +3,10 @@ import { join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const outputDir = resolve(process.argv[2] ?? "web-dist");
+const yarnShimDir = resolve(import.meta.dirname, "expo-yarn-shim");
 const result = spawnSync("npx", ["expo", "export", "--platform", "web", "--output-dir", outputDir], {
   cwd: resolve(import.meta.dirname, ".."),
+  env: { ...process.env, PATH: `${yarnShimDir}:${process.env.PATH ?? ""}` },
   stdio: "inherit",
   shell: process.platform === "win32",
 });

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -eu
+
+if [[ "$#" -eq 2 && "$1" == "global" && "$2" == "dir" ]]; then
+  printf '%s/.config/yarn/global\n' "${HOME:-/tmp}"
+  exit 0
+fi
+
+if [[ "$#" -eq 1 && ( "$1" == "--version" || "$1" == "-v" ) ]]; then
+  printf '1.22.22\n'
+  exit 0
+fi
+
+printf 'Expo export yarn shim: unsupported command:' >&2
+printf ' %q' "$@" >&2
+printf '\n' >&2
+exit 1
