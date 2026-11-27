@@ -10,7 +10,7 @@
     "build:web": "node scripts/build_web.mjs",
     "build": "esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
-    "check": "node --max-old-space-size=768 ./node_modules/typescript/bin/tsc --noEmit",
+    "check": "node --max-old-space-size=1024 ./node_modules/typescript/bin/tsc --noEmit",
     "lint": "expo lint",
     "format": "prettier --write .",
     "test": "vitest run",
